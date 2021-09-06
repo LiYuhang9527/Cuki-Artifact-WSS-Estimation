@@ -43,6 +43,8 @@ public class ShadowCache {
         // assume 3% Guava default false positive ratio
         mBloomFilterExpectedInsertions =
                 (long) ((-perBloomFilterMemoryOverhead * Math.log(2) * Math.log(2)) / Math.log(0.03));
+        // System.out.println("expected insertions: " + mBloomFilterExpectedInsertions);
+        // System.out.println("bits per insertions: " + perBloomFilterMemoryOverhead / mBloomFilterExpectedInsertions);
         mObjEachBloomFilter = new AtomicIntegerArray(new int[mNumBloomFilter]);
         mByteEachBloomFilter = new AtomicLongArray(new long[mNumBloomFilter]);
         mSegmentBloomFilters =
