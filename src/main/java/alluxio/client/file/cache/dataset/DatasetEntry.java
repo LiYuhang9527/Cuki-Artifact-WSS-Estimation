@@ -1,5 +1,7 @@
 package alluxio.client.file.cache.dataset;
 
+import java.util.Objects;
+
 public class DatasetEntry<T> {
     private T item;
     private int size;
@@ -33,5 +35,20 @@ public class DatasetEntry<T> {
 
     public void setScopeInfo(ScopeInfo scopeInfo) {
         this.scopeInfo = scopeInfo;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+        DatasetEntry<?> that = (DatasetEntry<?>) o;
+        return size == that.size &&
+                Objects.equals(item, that.item) &&
+                Objects.equals(scopeInfo, that.scopeInfo);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(item, size, scopeInfo);
     }
 }

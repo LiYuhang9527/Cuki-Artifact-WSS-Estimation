@@ -1,5 +1,7 @@
 package alluxio.client.file.cache.dataset;
 
+import java.util.Objects;
+
 public class ScopeInfo {
     private String scope;
 
@@ -13,5 +15,18 @@ public class ScopeInfo {
 
     public void setScope(String scope) {
         this.scope = scope;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+        ScopeInfo scopeInfo = (ScopeInfo) o;
+        return Objects.equals(scope, scopeInfo.scope);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(scope);
     }
 }
