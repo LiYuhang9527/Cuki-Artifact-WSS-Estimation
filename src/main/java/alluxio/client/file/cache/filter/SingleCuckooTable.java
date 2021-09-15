@@ -90,6 +90,64 @@ public class SingleCuckooTable implements CuckooTable {
     }
 
     @Override
+    public boolean findTagInBucket(int i, int tag, TagPosition position) {
+        for (int j = 0; j < tagsPerBucket; j++) {
+            if (readTag(i, j) == tag) {
+                position.setBucketIndex(i);
+                position.setTagIndex(j);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    @Override
+    public boolean findTagInBuckets(int i1, int i2, int tag, TagPosition position) {
+        for (int j = 0; j < tagsPerBucket; j++) {
+            if (readTag(i1, j) == tag) {
+                position.setBucketIndex(i1);
+                position.setTagIndex(j);
+                return true;
+            } else if (readTag(i2, j) == tag) {
+                position.setBucketIndex(i2);
+                position.setTagIndex(j);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    @Override
+    public boolean deleteTagFromBucket(int i, int tag, TagPosition position) {
+        for (int j = 0; j < tagsPerBucket; j++) {
+            if (readTag(i, j) == tag) {
+                writeTag(i, j, 0);
+                position.setBucketIndex(i);
+                position.setTagIndex(j);
+                return true;
+            }
+        }
+        return false;    }
+
+    @Override
+    public int insertOrKickoutOne(int i, int tag, TagPosition position) {
+        for (int j = 0; j < tagsPerBucket; j++) {
+            if (readTag(i, j) == 0) {
+                writeTag(i, j, tag);
+                position.setBucketIndex(i);
+                position.setTagIndex(j);
+                return 0;
+            }
+        }
+        int r = ThreadLocalRandom.current().nextInt(tagsPerBucket);
+        int oldTag = readTag(i, r);
+        writeTag(i, r, tag);
+        position.setBucketIndex(i);
+        position.setTagIndex(r);
+        return oldTag;
+    }
+
+    @Override
     public int numTagsPerBuckets() {
         return tagsPerBucket;
     }
@@ -115,6 +173,6 @@ public class SingleCuckooTable implements CuckooTable {
     }
 
     private int getTagOffset(int bucketIndex, int posInBucket) {
-        return (bucketIndex * numBuckets * bitsPerTag) + (posInBucket * bitsPerTag);
+        return (bucketIndex * tagsPerBucket * bitsPerTag) + (posInBucket * bitsPerTag);
     }
 }

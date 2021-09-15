@@ -13,6 +13,14 @@ public interface CuckooTable {
 
     public int insertOrKickoutOne(int i, int tag);
 
+    public boolean findTagInBucket(int i, int tag, TagPosition position);
+
+    public boolean findTagInBuckets(int i1, int i2, int tag, TagPosition position);
+
+    public boolean deleteTagFromBucket(int i, int tag, TagPosition position);
+
+    public int insertOrKickoutOne(int i, int tag, TagPosition position);
+
     public int numTagsPerBuckets();
 
     public int numBuckets();
