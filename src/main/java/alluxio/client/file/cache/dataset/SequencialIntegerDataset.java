@@ -1,0 +1,115 @@
+package alluxio.client.file.cache.dataset;
+
+import alluxio.client.file.cache.Constants;
+
+import java.util.HashMap;
+import java.util.LinkedList;
+import java.util.Queue;
+import java.util.Random;
+import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
+
+public class SequencialIntegerDataset implements Dataset<Integer> {
+    private static final ScopeInfo DEFAULT_SCOPE = new ScopeInfo("db1.table1");
+    private static final int BYTES_PER_ITEM = 1;
+
+    private final long numEntry;
+    private final int windowSize;
+    private final int lowerBound;
+    private final int upperBound;
+    private final Lock lock;
+    private final AtomicLong count;
+
+    //    private final ConcurrentLinkedQueue<Integer> queue;
+//    private final ConcurrentHashMap<Integer, Integer> map;
+    private final Queue<DatasetEntry<Integer>> queue;
+    private final HashMap<DatasetEntry<Integer>, Integer> map;
+    private final HashMap<ScopeInfo, Integer> scopedNumber;
+    private final HashMap<ScopeInfo, Integer> scopedSize;
+    private int realNumber;
+    private int realSize;
+
+    public SequencialIntegerDataset(long numEntry, int windowSize, int lowerBound, int upperBound) {
+        this.numEntry = numEntry;
+        this.windowSize = windowSize;
+        this.lowerBound = lowerBound;
+        this.upperBound = upperBound;
+        this.lock = new ReentrantLock();
+        this.count = new AtomicLong(0);
+        this.queue = new LinkedList<>();
+        this.map = new HashMap<>();
+//        this.queue = new ConcurrentLinkedQueue<>();
+//        this.map = new ConcurrentHashMap<>();
+        this.scopedNumber = new HashMap<>();
+        this.scopedSize = new HashMap<>();
+        this.realNumber = 0;
+        this.realSize = 0;
+    }
+
+    @Override
+    public DatasetEntry<Integer> next() {
+        int r = (lowerBound + count.intValue()) % (upperBound - lowerBound + 1);
+        count.incrementAndGet();
+        lock.lock();
+        ScopeInfo scope = new ScopeInfo("table" + (r % 64));
+        int size = (r * 31213) % Constants.KB;
+        if (size < 0) {
+            size = -size;
+        }
+        DatasetEntry<Integer> entry = new DatasetEntry<>(r, size, scope);
+        queue.offer(entry);
+        Integer cnt = map.get(entry);
+        if (cnt != null && cnt > 0) {
+            map.put(entry, cnt + 1);
+        } else {
+            map.put(entry, 1);
+            scopedSize.put(entry.getScopeInfo(), scopedSize.getOrDefault(entry.getScopeInfo(), 0) + entry.getSize());
+            scopedNumber.put(entry.getScopeInfo(), scopedNumber.getOrDefault(entry.getScopeInfo(), 0) + 1);
+            realSize += entry.getSize();
+        }
+        if (queue.size() > windowSize) {
+            DatasetEntry<Integer> staleItem = queue.poll();
+            assert staleItem != null;
+            Integer itemCount = map.get(staleItem);
+            assert itemCount != null;
+            if (itemCount <= 1) {
+                map.remove(staleItem);
+                scopedSize.put(staleItem.getScopeInfo(), scopedSize.getOrDefault(staleItem.getScopeInfo(), 0) - staleItem.getSize());
+                scopedNumber.put(staleItem.getScopeInfo(), scopedNumber.getOrDefault(staleItem.getScopeInfo(), 0) - 1);
+                realSize -= staleItem.getSize();
+            } else {
+                map.put(staleItem, itemCount - 1);
+            }
+        }
+        realNumber = map.size();
+        lock.unlock();
+        return entry;
+    }
+
+    @Override
+    public boolean hasNext() {
+        return count.get() < numEntry;
+    }
+
+    @Override
+    public int getRealEntryNumber() {
+        return realNumber;
+    }
+
+    @Override
+    public int getRealEntryNumber(ScopeInfo scope) {
+        return scopedNumber.getOrDefault(scope, 0);
+    }
+
+    @Override
+    public int getRealEntrySize() {
+        return realSize;
+    }
+
+    @Override
+    public int getRealEntrySize(ScopeInfo scope) {
+        return scopedSize.getOrDefault(scope, 0);
+    }
+}

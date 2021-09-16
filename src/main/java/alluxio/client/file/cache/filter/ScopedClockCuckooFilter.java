@@ -38,6 +38,8 @@ public class ScopedClockCuckooFilter<T> implements Serializable {
     private final HashMap<Integer, Integer> scopeToNumber;
     private final HashMap<Integer, Integer> scopeToSize;
 
+    private int agingPointer = 0;
+
     public static <T> ScopedClockCuckooFilter<T> create(
             Funnel<? super T> funnel, long expectedInsertions,
             int bitsPerClock, int bitsPerSize, int bitsPerScope,
@@ -110,6 +112,7 @@ public class ScopedClockCuckooFilter<T> implements Serializable {
         scopeToNumber.put(scope, scopeToNumber.getOrDefault(scope, 0) + 1);
         scopeToSize.put(scope, scopeToSize.getOrDefault(scope, 0) + size);
         TagPosition pos = new TagPosition();
+        int from = -1, to = -1;
         for (int count = 0; count < MAX_CUCKOO_COUNT; count++) {
             boolean kickout = false;
             if (count > 0) {
@@ -122,6 +125,12 @@ public class ScopedClockCuckooFilter<T> implements Serializable {
 //            scopeToNumber.put(oldTagScope, scopeToNumber.getOrDefault(oldTagScope, 1) - 1);
 //            scopeToSize.put(oldTagScope, scopeToSize.getOrDefault(oldTagScope, oldTagSize) - oldTagSize);
 
+            to = pos.getBucketIndex();
+//            if (from != -1 && from < agingPointer && to >= agingPointer) {
+//                curTagClock = Math.min(curTagClock+1, 0xffff);
+//            } else if (from != -1 && from >= agingPointer && to < agingPointer) {
+//                curTagClock = Math.max(curTagClock-1, 0x0);
+//            }
             clockTable.writeTag(pos.getBucketIndex(), pos.getTagIndex(), curTagClock);
             sizeTable.writeTag(pos.getBucketIndex(), pos.getTagIndex(), curSize);
             scopeTable.writeTag(pos.getBucketIndex(), pos.getTagIndex(), curScope);
@@ -133,6 +142,8 @@ public class ScopedClockCuckooFilter<T> implements Serializable {
 //                scopeToNumber.put(curScope, scopeToNumber.getOrDefault(curScope, 0) + 1);
 //                scopeToSize.put(curScope, scopeToSize.getOrDefault(curScope, 0) + size);
                 return true;
+            } else {
+                from = pos.getBucketIndex();
             }
             if (kickout) {
                 curTag = oldTag;
@@ -209,6 +220,39 @@ public class ScopedClockCuckooFilter<T> implements Serializable {
                 }
             }
         }
+    }
+
+    public void minorAging(int k) {
+        int bucketsToAging = numBuckets/k;
+        if (2*bucketsToAging + agingPointer > numBuckets) {
+            bucketsToAging = numBuckets - agingPointer;
+        }
+        for (int p=0; p < bucketsToAging; p++) {
+            int i = (agingPointer + p) % numBuckets;
+            for (int j=0; j < TAGS_PER_BUCKET; j++) {
+                int tag = table.readTag(i, j);
+                if (tag == 0) {
+                    continue;
+                }
+                int oldClock = clockTable.readTag(i, j);
+                if (oldClock > 0) {
+                    clockTable.writeTag(i, j, oldClock-1);
+                } else if (oldClock == 0) {
+                    // evict stale item
+                    table.writeTag(i, j, 0);
+                    numItems.decrementAndGet();
+                    int scope = scopeTable.readTag(i, j);
+                    int size = sizeTable.readTag(i, j);
+                    totalBytes.addAndGet(-size);
+                    scopeToNumber.put(scope, scopeToNumber.getOrDefault(scope, 1) - 1);
+                    scopeToSize.put(scope, scopeToSize.getOrDefault(scope, size) - size);
+                } else {
+                    // should not come to here
+                    System.out.println("Error: aging()");
+                }
+            }
+        }
+        agingPointer = (agingPointer + bucketsToAging) % numBuckets;
     }
 
     public String getSummary() {
