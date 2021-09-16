@@ -9,7 +9,10 @@ def load_csv(filename):
 
 # 0             1       2           3   4           5       6
 # #operation	Real	Real(bytes)	MBF	MBF(bytes)	CCF	CCF(bytes)
-X = load_csv(dir + 'RandomBench.csv')
+X = load_csv(dir + 'MinorAgingRandomBench.csv')
+# X = load_csv(dir + 'MinorAgingSequencialBench.csv')
+# X = load_csv(dir + 'SequencialBench2.csv')
+# X = load_csv(dir + 'RandomBench-c4.csv')
 
 num_subplots = 2
 plt.figure(0, figsize=(16, 2 *4))
@@ -34,4 +37,4 @@ plt.ylabel('Bytes')
 
 plt.xlabel('# operation')
 
-plt.savefig(dir + 'random_bench.png', dpi=600)
+plt.savefig(dir + 'marandom_bench.png', dpi=600)
