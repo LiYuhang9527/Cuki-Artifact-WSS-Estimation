@@ -148,6 +148,19 @@ public class SingleCuckooTable implements CuckooTable {
     }
 
     @Override
+    public boolean insert(int i, int tag, TagPosition position) {
+        for (int j = 0; j < tagsPerBucket; j++) {
+            if (readTag(i, j) == 0) {
+                writeTag(i, j, tag);
+                position.setBucketIndex(i);
+                position.setTagIndex(j);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    @Override
     public int numTagsPerBuckets() {
         return tagsPerBucket;
     }

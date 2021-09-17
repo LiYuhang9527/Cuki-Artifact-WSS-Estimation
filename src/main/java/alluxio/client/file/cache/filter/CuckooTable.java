@@ -21,6 +21,8 @@ public interface CuckooTable {
 
     public int insertOrKickoutOne(int i, int tag, TagPosition position);
 
+    public boolean insert(int i, int tag, TagPosition position);
+
     public int numTagsPerBuckets();
 
     public int numBuckets();
