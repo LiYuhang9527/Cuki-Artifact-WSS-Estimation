@@ -16,7 +16,7 @@ public class RandomBench {
     private static final int WINDOW_SIZE = 1 * Constants.MB;
     private static final int NUM_UNIQUE_ENTRY = 2 * Constants.MB;
     private static final int SEED = 32713;
-    private static final int BITS_PER_CLOCK = 4;
+    private static final int BITS_PER_CLOCK = 8;
     private static final int BITS_PER_SIZE = 20;
     private static final int BITS_PER_SCOPE = 8;
 
