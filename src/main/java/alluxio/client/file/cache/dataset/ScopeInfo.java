@@ -29,4 +29,11 @@ public class ScopeInfo {
     public int hashCode() {
         return Objects.hash(scope);
     }
+
+    @Override
+    public String toString() {
+        return "ScopeInfo{" +
+                "scope='" + scope + '\'' +
+                '}';
+    }
 }

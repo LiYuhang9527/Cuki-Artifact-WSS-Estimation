@@ -6,11 +6,20 @@ public class DatasetEntry<T> {
     private T item;
     private int size;
     private ScopeInfo scopeInfo;
+    private long timestamp;
+
+    public DatasetEntry(T item, int size, ScopeInfo scopeInfo, long timestamp) {
+        this.item = item;
+        this.size = size;
+        this.scopeInfo = scopeInfo;
+        this.timestamp = timestamp;
+    }
 
     public DatasetEntry(T item, int size, ScopeInfo scopeInfo) {
         this.item = item;
         this.size = size;
         this.scopeInfo = scopeInfo;
+        this.timestamp = 0;
     }
 
     public T getItem() {
@@ -50,5 +59,23 @@ public class DatasetEntry<T> {
     @Override
     public int hashCode() {
         return Objects.hash(item, size, scopeInfo);
+    }
+
+    public long getTimestamp() {
+        return timestamp;
+    }
+
+    public void setTimestamp(long timestamp) {
+        this.timestamp = timestamp;
+    }
+
+    @Override
+    public String toString() {
+        return "DatasetEntry{" +
+                "item=" + item +
+                ", size=" + size +
+                ", scopeInfo=" + scopeInfo +
+                ", timestamp=" + timestamp +
+                '}';
     }
 }

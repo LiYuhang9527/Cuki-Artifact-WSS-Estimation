@@ -4,6 +4,9 @@ import javax.annotation.concurrent.ThreadSafe;
 
 @ThreadSafe
 public final class Constants {
+    public static final int K = 1000;
+    public static final int M = K * 1000;
+
     public static final int KB = 1024;
     public static final int MB = KB * 1024;
     public static final int GB = MB * 1024;
