@@ -19,20 +19,20 @@ public class ConcurrentBench<T> extends Thread {
 
     public static void main(String[] args) {
         // parse arguments
-        long totalOps = 10 * Constants.MB;
+        long totalOps = NUM_ENTRIES;
         int numThreads = 4;
         long opsPerThread = totalOps / numThreads;
         ScopedClockCuckooFilter<Integer> clockFilter = ScopedClockCuckooFilter.create(
                 Funnels.integerFunnel(), NUM_UNIQUE_ENTRY, BITS_PER_CLOCK, BITS_PER_SIZE, BITS_PER_SCOPE);
         System.out.println(clockFilter.getSummary());
-        Dataset<Integer> dataset = new GeneralDataset<>(
-                new RandomIntegerEntryGenerator(NUM_ENTRIES,
-                        0, NUM_UNIQUE_ENTRY, 0, (1<<BITS_PER_SIZE)-1,  1, 32173),
-                WINDOW_SIZE);
         ClientState state = new ClientState();
         state.numThreads.set(numThreads);
         ArrayList<ClientThread<Integer>> workers = new ArrayList<>();
         for (int i=0; i < numThreads; i++) {
+            Dataset<Integer> dataset = new GeneralDataset<>(
+                    new RandomIntegerEntryGenerator(NUM_ENTRIES,
+                            0, NUM_UNIQUE_ENTRY, 0, (1<<BITS_PER_SIZE)-1,  1, 32173+i),
+                    WINDOW_SIZE);
             workers.add(new ClientThread<>(i, clockFilter, dataset, opsPerThread, state));
         }
         long st = System.currentTimeMillis();
