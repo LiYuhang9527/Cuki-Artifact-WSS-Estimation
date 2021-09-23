@@ -1,5 +1,6 @@
 import matplotlib.pyplot as plt
 import pandas as pd
+import numpy as np
 
 dir='G:/git_repo/working-set-size-estimation/src/main/resources/benchmarks/filters/'
 
@@ -40,3 +41,10 @@ plt.ylabel('WSS (Bytes)')
 plt.xlabel('# operation')
 
 plt.savefig(dir + 'twitter/cluster37.0.png', dpi=300)
+
+# Compute average error
+print('Average Error of MBF(Number)', np.divide(X[:,3], X[:,1]).mean()-1.0)
+print('Average Error of CCF(Number)', np.divide(X[:,5], X[:,1]).mean()-1.0)
+
+print('Average Error of MBF(Bytes)', np.divide(X[:,4], X[:,2]).mean()-1.0)
+print('Average Error of CCF(Bytes)', np.divide(X[:,6], X[:,2]).mean()-1.0)
