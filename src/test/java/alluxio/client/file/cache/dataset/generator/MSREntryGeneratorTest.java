@@ -20,6 +20,6 @@ public class MSREntryGeneratorTest {
             count++;
         }
         assertEquals(100, count);
-        assertEquals(100, dataset.getRealEntryNumber());
+        assertEquals(99, dataset.getRealEntryNumber()); // 1 duplicated entry
     }
 }
