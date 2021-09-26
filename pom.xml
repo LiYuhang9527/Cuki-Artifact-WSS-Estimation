@@ -44,12 +44,19 @@
 <!--                </exclusion>-->
 <!--            </exclusions>-->
         </dependency>
+        <dependency>
+            <groupId>org.testng</groupId>
+            <artifactId>testng</artifactId>
+            <version>${testng.version}</version>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <properties>
         <metrics.version>4.1.11</metrics.version>
         <guava.version>29.0-jre</guava.version>
         <junit.version>4.13</junit.version>
+        <testng.version>RELEASE</testng.version>
     </properties>
 
 </project>

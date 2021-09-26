@@ -38,6 +38,8 @@ public class ScopedClockCuckooFilter<T> implements Serializable {
     private final HashMap<Integer, Integer> scopeToNumber;
     private final HashMap<Integer, Integer> scopeToSize;
 
+    private final ScopeEncoder scopeEncoder;
+
     private int agingPointer = 0;
 
     public static <T> ScopedClockCuckooFilter<T> create(
@@ -65,7 +67,7 @@ public class ScopedClockCuckooFilter<T> implements Serializable {
 
     public static <T> ScopedClockCuckooFilter<T> create(
             Funnel<? super T> funnel, long expectedInsertions, int bitsPerClock, int bitsPerSize, int bitsPerScope, double fpp, double loadFactor) {
-        return create(funnel, expectedInsertions, bitsPerClock, bitsPerSize, bitsPerScope ,fpp, loadFactor, Hashing.murmur3_128());
+        return create(funnel, expectedInsertions, bitsPerClock, bitsPerSize, bitsPerScope, fpp, loadFactor, Hashing.murmur3_128());
     }
 
     public static <T> ScopedClockCuckooFilter<T> create(
@@ -100,6 +102,7 @@ public class ScopedClockCuckooFilter<T> implements Serializable {
         this.totalBytes = new AtomicLong(0L);
         this.scopeToNumber = new HashMap<>();
         this.scopeToSize = new HashMap<>();
+        this.scopeEncoder = new ScopeEncoder(bitsPerScope);
     }
 
     public boolean put(T item, int size, ScopeInfo scopeInfo) {
@@ -204,8 +207,8 @@ public class ScopedClockCuckooFilter<T> implements Serializable {
 
     public int aging() {
         int numCleaned = 0;
-        for (int i=0; i < numBuckets; i++) {
-            for (int j=0; j < TAGS_PER_BUCKET; j++) {
+        for (int i = 0; i < numBuckets; i++) {
+            for (int j = 0; j < TAGS_PER_BUCKET; j++) {
                 int tag = table.readTag(i, j);
                 if (tag == 0) {
                     continue;
@@ -213,7 +216,7 @@ public class ScopedClockCuckooFilter<T> implements Serializable {
                 int oldClock = clockTable.readTag(i, j);
                 assert oldClock >= 0;
                 if (oldClock > 0) {
-                    clockTable.writeTag(i, j, oldClock-1);
+                    clockTable.writeTag(i, j, oldClock - 1);
                 } else if (oldClock == 0) {
                     // evict stale item
                     numCleaned++;
@@ -235,20 +238,20 @@ public class ScopedClockCuckooFilter<T> implements Serializable {
 
     public int minorAging(int k) {
         int numCleaned = 0;
-        int bucketsToAging = numBuckets/k;
-        if (2*bucketsToAging + agingPointer > numBuckets) {
+        int bucketsToAging = numBuckets / k;
+        if (2 * bucketsToAging + agingPointer > numBuckets) {
             bucketsToAging = numBuckets - agingPointer;
         }
-        for (int p=0; p < bucketsToAging; p++) {
+        for (int p = 0; p < bucketsToAging; p++) {
             int i = (agingPointer + p) % numBuckets;
-            for (int j=0; j < TAGS_PER_BUCKET; j++) {
+            for (int j = 0; j < TAGS_PER_BUCKET; j++) {
                 int tag = table.readTag(i, j);
                 if (tag == 0) {
                     continue;
                 }
                 int oldClock = clockTable.readTag(i, j);
                 if (oldClock > 0) {
-                    clockTable.writeTag(i, j, oldClock-1);
+                    clockTable.writeTag(i, j, oldClock - 1);
                 } else if (oldClock == 0) {
                     // evict stale item
                     numCleaned++;
@@ -292,9 +295,9 @@ public class ScopedClockCuckooFilter<T> implements Serializable {
                 "\nbitsPerSize: " + bitsPerSize +
                 "\nbitsPerScope: " + bitsPerScope +
                 "\nSizeInMB: " + (numBuckets() * tagsPerBucket() * bitsPerTag() / 8.0 / Constants.MB +
-                                numBuckets() * tagsPerBucket() * getBitsPerClock() / 8.0 / Constants.MB +
-                                numBuckets() * tagsPerBucket() * bitsPerSize / 8.0 / Constants.MB +
-                                numBuckets() * tagsPerBucket() * bitsPerScope / 8.0 / Constants.MB);
+                numBuckets() * tagsPerBucket() * getBitsPerClock() / 8.0 / Constants.MB +
+                numBuckets() * tagsPerBucket() * bitsPerSize / 8.0 / Constants.MB +
+                numBuckets() * tagsPerBucket() * bitsPerScope / 8.0 / Constants.MB);
     }
 
     public int size() {
@@ -326,6 +329,7 @@ public class ScopedClockCuckooFilter<T> implements Serializable {
     public int bitsPerTag() {
         return table.bitsPerTag();
     }
+
     public int getBitsPerClock() {
         return clockTable.bitsPerTag();
     }
@@ -349,10 +353,6 @@ public class ScopedClockCuckooFilter<T> implements Serializable {
     }
 
     private int encodeScope(ScopeInfo scopeInfo) {
-        int scope = scopeInfo.hashCode()%64;
-        if (scope < 0) {
-            scope = -scope;
-        }
-        return scope;
+        return scopeEncoder.encode(scopeInfo);
     }
 }

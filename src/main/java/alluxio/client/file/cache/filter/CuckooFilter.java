@@ -1,6 +1,5 @@
 package alluxio.client.file.cache.filter;
 
-import com.google.common.annotations.VisibleForTesting;
 import com.google.common.hash.Funnel;
 import com.google.common.hash.HashCode;
 import com.google.common.hash.HashFunction;
