@@ -1,12 +1,15 @@
 package alluxio.client.file.cache.filter;
 
 import alluxio.client.file.cache.dataset.ScopeInfo;
-import org.testng.annotations.BeforeTest;
-import org.testng.annotations.Test;
+import alluxio.test.util.ConcurrencyUtils;
+import org.junit.Before;
+import org.junit.Test;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
 
-import static org.testng.Assert.assertEquals;
+import static org.junit.Assert.assertEquals;
 import static org.testng.Assert.assertTrue;
 
 public class ScopeEncoderTest {
@@ -14,9 +17,13 @@ public class ScopeEncoderTest {
     private static final int NUM_SCOPES = (1 << BITS_PER_SCOPE);
     private static final ScopeInfo SCOPE1 = new ScopeInfo("table1");
 
+    // concurrency configurations
+    private static final int DEFAULT_THREAD_AMOUNT = 12;
+    private static final int DEFAULT_TIMEOUT_SECONDS = 10;
+
     private ScopeEncoder scopeEncoder;
 
-    @BeforeTest
+    @Before
     public void init() {
         scopeEncoder = new ScopeEncoder(BITS_PER_SCOPE);
     }
@@ -28,15 +35,21 @@ public class ScopeEncoderTest {
         assertEquals(SCOPE1, scopeEncoder.decode(id));
     }
 
-    @Test(threadPoolSize = 4, invocationCount = 12)
-    public void testConcurrentEncodeDecode() {
-        for (int i = 0; i < NUM_SCOPES * 16; i++) {
-            int r = ThreadLocalRandom.current().nextInt(NUM_SCOPES);
-            ScopeInfo scopeInfo = new ScopeInfo("table" + r);
-            int id = scopeEncoder.encode(scopeInfo);
-            assertEquals(scopeInfo, scopeEncoder.decode(id));
-            assertEquals(id, scopeEncoder.encode(scopeInfo));
-            assertTrue(0 <= id && id < NUM_SCOPES);
+    @Test
+    public void testConcurrentEncodeDecode() throws Exception {
+        List<Runnable> runnables = new ArrayList<>();
+        for (int k = 0; k < DEFAULT_THREAD_AMOUNT; k++) {
+            runnables.add(() -> {
+                for (int i = 0; i < NUM_SCOPES * 16; i++) {
+                    int r = ThreadLocalRandom.current().nextInt(NUM_SCOPES);
+                    ScopeInfo scopeInfo = new ScopeInfo("table" + r);
+                    int id = scopeEncoder.encode(scopeInfo);
+                    assertEquals(scopeInfo, scopeEncoder.decode(id));
+                    assertEquals(id, scopeEncoder.encode(scopeInfo));
+                    assertTrue(0 <= id && id < NUM_SCOPES);
+                }
+            });
         }
+        ConcurrencyUtils.assertConcurrent(runnables, DEFAULT_TIMEOUT_SECONDS);
     }
 }

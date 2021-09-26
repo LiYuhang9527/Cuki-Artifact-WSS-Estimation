@@ -1,16 +1,36 @@
 package alluxio.client.file.cache.filter;
 
-public class TagPosition {
-    private int bucketIndex;
-    private int tagIndex;
+enum CuckooStatus {
+    OK(0),
+    FAILURE(1),
+    FAILURE_KEY_NOT_FOUND(2),
+    FAILURE_KEY_DUPLICATED(3),
+    FAILURE_TABLE_FULL(4),
+    UNDEFINED(4);
 
-    public TagPosition(int bucketIndex, int tagIndex) {
-        this.bucketIndex = bucketIndex;
-        this.tagIndex = tagIndex;
+    public int code;
+    CuckooStatus(int code) {
+        this.code = code;
     }
+}
+
+public class TagPosition {
+    public int bucketIndex;
+    public int tagIndex;
+    public CuckooStatus status;
 
     public TagPosition() {
-        this(-1, -1);
+        this(-1, -1, CuckooStatus.UNDEFINED);
+    }
+
+    public TagPosition(int bucketIndex, int tagIndex) {
+        this(bucketIndex, tagIndex, CuckooStatus.UNDEFINED);
+    }
+
+    public TagPosition(int bucketIndex, int tagIndex, CuckooStatus status) {
+        this.bucketIndex = bucketIndex;
+        this.tagIndex = tagIndex;
+        this.status = status;
     }
 
     boolean valid() {
@@ -25,12 +45,25 @@ public class TagPosition {
         return tagIndex;
     }
 
+    public CuckooStatus getStatus() {
+        return status;
+    }
+
     public void setBucketIndex(int bucketIndex) {
         this.bucketIndex = bucketIndex;
     }
 
     public void setTagIndex(int tagIndex) {
         this.tagIndex = tagIndex;
+    }
+
+    public void setStatus(CuckooStatus status) {
+        this.status = status;
+    }
+
+    public void setBucketAndSlot(int bucket, int slot) {
+        this.bucketIndex = bucket;
+        this.tagIndex = slot;
     }
 
     @Override

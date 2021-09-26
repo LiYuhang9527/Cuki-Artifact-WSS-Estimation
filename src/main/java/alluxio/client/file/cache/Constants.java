@@ -17,4 +17,7 @@ public final class Constants {
     public static final long MINUTE = SECOND * 60L;
     public static final long HOUR = MINUTE * 60L;
     public static final long DAY = HOUR * 24L;
+
+    // Cuckoo constants
+    public static final int MAX_BFS_PATH_LEN = 5;
 }
