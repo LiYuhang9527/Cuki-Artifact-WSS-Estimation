@@ -8,24 +8,6 @@ import com.google.common.hash.Hashing;
 import java.io.Serializable;
 import java.util.concurrent.atomic.AtomicLong;
 
-final class IndexAndTag {
-    public final int index;
-    public final int tag;
-
-    IndexAndTag(int bucketIndex, int tag) {
-        this.index = bucketIndex;
-        this.tag = tag;
-    }
-
-    @Override
-    public String toString() {
-        return "IndexAndTag{" +
-                "index=" + index +
-                ", tag=" + tag +
-                '}';
-    }
-}
-
 public class CuckooFilter<T> implements Serializable {
     private static final double DEFAULT_FPP = 0.01;
     private static final double DEFAULT_LOAD_FACTOR = 0.955;

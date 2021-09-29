@@ -87,18 +87,16 @@ public class ConcurrentClockCuckooFilter<T> implements Serializable {
     private final SegmentedLock locks;
     private final int[] segmentedAgingPointers;
 
-    // used for minor aging
-    private int agingPointer = 0;
-
     // if count-based sliding window, windowSize is the number of operations;
     // if time-based sliding window, windowSize is the milliseconds in a period.
-    private final SlidingWindowType slidingWindowType = SlidingWindowType.COUNT_BASED;
-    private final long windowSize = 64 * Constants.KB;
+    private final SlidingWindowType slidingWindowType;
+    private final long windowSize;
     private final long startTime = System.currentTimeMillis();
 
     public static <T> ConcurrentClockCuckooFilter<T> create(
             Funnel<? super T> funnel, long expectedInsertions,
             int bitsPerClock, int bitsPerSize, int bitsPerScope,
+            SlidingWindowType slidingWindowType, long windowSize,
             double fpp, double loadFactor, HashFunction hasher) {
         // TODO: make expectedInsertions a power of 2
         int bitsPerTag = Utils.optimalBitsPerTag(fpp, loadFactor);
@@ -116,30 +114,51 @@ public class ConcurrentClockCuckooFilter<T> implements Serializable {
 
         AbstractBitSet scopeBits = new BuiltinBitSet((int) (numBuckets * TAGS_PER_BUCKET * bitsPerScope));
         CuckooTable scopeTable = new SingleCuckooTable(scopeBits, (int) numBuckets, TAGS_PER_BUCKET, bitsPerScope);
-        return new ConcurrentClockCuckooFilter<>(table, clockTable, sizeTable, scopeTable, funnel, hasher);
+        return new ConcurrentClockCuckooFilter<>(table, clockTable, sizeTable, scopeTable,
+                slidingWindowType, windowSize, funnel, hasher);
     }
 
     public static <T> ConcurrentClockCuckooFilter<T> create(
-            Funnel<? super T> funnel, long expectedInsertions, int bitsPerClock, int bitsPerSize, int bitsPerScope, double fpp, double loadFactor) {
-        return create(funnel, expectedInsertions, bitsPerClock, bitsPerSize, bitsPerScope, fpp, loadFactor, Hashing.murmur3_128());
+            Funnel<? super T> funnel, long expectedInsertions,
+            int bitsPerClock, int bitsPerSize, int bitsPerScope,
+            SlidingWindowType slidingWindowType, long windowSize,
+            double fpp, double loadFactor) {
+        return create(funnel, expectedInsertions, bitsPerClock, bitsPerSize, bitsPerScope,
+                slidingWindowType, windowSize, fpp, loadFactor, Hashing.murmur3_128());
     }
 
     public static <T> ConcurrentClockCuckooFilter<T> create(
-            Funnel<? super T> funnel, long expectedInsertions, int bitsPerClock, int bitsPerSize, int bitsPerScope, double fpp) {
-        return create(funnel, expectedInsertions, bitsPerClock, bitsPerSize, bitsPerScope, fpp, DEFAULT_LOAD_FACTOR);
+            Funnel<? super T> funnel, long expectedInsertions,
+            int bitsPerClock, int bitsPerSize, int bitsPerScope,
+            SlidingWindowType slidingWindowType, long windowSize,
+            double fpp) {
+        return create(funnel, expectedInsertions, bitsPerClock, bitsPerSize, bitsPerScope,
+                slidingWindowType, windowSize, fpp, DEFAULT_LOAD_FACTOR);
     }
 
     public static <T> ConcurrentClockCuckooFilter<T> create(
-            Funnel<? super T> funnel, long expectedInsertions, int bitsPerClock, int bitsPerSize, int bitsPerScope) {
+            Funnel<? super T> funnel, long expectedInsertions,
+            int bitsPerClock, int bitsPerSize, int bitsPerScope,
+            SlidingWindowType slidingWindowType, long windowSize) {
+        return create(funnel, expectedInsertions, bitsPerClock, bitsPerSize, bitsPerScope,
+                slidingWindowType, windowSize, DEFAULT_FPP);
+    }
+
+    public static <T> ConcurrentClockCuckooFilter<T> create(
+            Funnel<? super T> funnel, long expectedInsertions,
+            int bitsPerClock, int bitsPerSize, int bitsPerScope) {
         assert funnel != null;
         assert expectedInsertions > 0;
         assert bitsPerClock > 0;
         assert bitsPerSize > 0;
         assert bitsPerScope > 0;
-        return create(funnel, expectedInsertions, bitsPerClock, bitsPerSize, bitsPerScope, DEFAULT_FPP);
+        return create(funnel, expectedInsertions, bitsPerClock, bitsPerSize, bitsPerScope,
+                SlidingWindowType.NONE, -1, DEFAULT_FPP);
     }
 
-    public ConcurrentClockCuckooFilter(CuckooTable table, CuckooTable clockTable, CuckooTable sizeTable, CuckooTable scopeTable,
+    public ConcurrentClockCuckooFilter(CuckooTable table, CuckooTable clockTable,
+                                       CuckooTable sizeTable, CuckooTable scopeTable,
+                                       SlidingWindowType slidingWindowType, long windowSize,
                                        Funnel<? super T> funnel, HashFunction hasher) {
         this.table = table;
         this.numBuckets = table.numBuckets();
@@ -150,6 +169,8 @@ public class ConcurrentClockCuckooFilter<T> implements Serializable {
         this.bitsPerSize = sizeTable.bitsPerTag();
         this.scopeTable = scopeTable;
         this.bitsPerScope = scopeTable.bitsPerTag();
+        this.slidingWindowType = slidingWindowType;
+        this.windowSize = windowSize;
         this.funnel = funnel;
         this.hasher = hasher;
         this.scopeEncoder = new ScopeEncoder(bitsPerScope);
@@ -277,20 +298,6 @@ public class ConcurrentClockCuckooFilter<T> implements Serializable {
         for (int i = 0; i < numBuckets; i++) {
             numCleaned += agingBucket(i);
         }
-        return numCleaned;
-    }
-
-    public int minorAging(int k) {
-        int numCleaned = 0;
-        int bucketsToAging = numBuckets / k;
-        if (2 * bucketsToAging + agingPointer > numBuckets) {
-            bucketsToAging = numBuckets - agingPointer;
-        }
-        for (int p = 0; p < bucketsToAging; p++) {
-            int i = (agingPointer + p) % numBuckets;
-            numCleaned += agingBucket(i);
-        }
-        agingPointer = (agingPointer + bucketsToAging) % numBuckets;
         return numCleaned;
     }
 
@@ -671,7 +678,9 @@ public class ConcurrentClockCuckooFilter<T> implements Serializable {
      */
     private int computeAgingNumber() {
         int bucketsToAge;
-        if (slidingWindowType == SlidingWindowType.COUNT_BASED) {
+        if (slidingWindowType == SlidingWindowType.NONE || windowSize < 0) {
+            bucketsToAge = 0;
+        } else if (slidingWindowType == SlidingWindowType.COUNT_BASED) {
             bucketsToAge = (int) (numBuckets * (operationCount.doubleValue() / (windowSize >> bitsPerClock))
                     - agingCount.get());
         } else {
