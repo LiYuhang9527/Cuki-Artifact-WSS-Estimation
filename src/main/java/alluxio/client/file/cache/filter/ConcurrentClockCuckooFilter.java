@@ -8,9 +8,10 @@ import com.google.common.hash.HashFunction;
 import com.google.common.hash.Hashing;
 
 import java.io.Serializable;
-import java.util.HashMap;
+import java.util.Arrays;
 import java.util.LinkedList;
 import java.util.Queue;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
@@ -49,6 +50,21 @@ public class ConcurrentClockCuckooFilter<T> implements Serializable {
     private static final double DEFAULT_LOAD_FACTOR = 0.955;
     private static final int MAX_CUCKOO_COUNT = 500;
     private static final int TAGS_PER_BUCKET = 4;
+    private static final int DEFAULT_NUM_LOCKS = 4096;
+
+    // aging configurations
+    // we do not want to block user operations for too long,
+    // so hard limited the aging number of each operation.
+    private static final int MAX_AGING_PER_OPERATION = 500;
+    private static final int AGING_STEP_SIZE = 5;
+
+    private final AtomicLong numItems = new AtomicLong(0);
+    private final AtomicLong totalBytes = new AtomicLong(0);
+    private final AtomicLong operationCount = new AtomicLong(0);
+    private final AtomicLong agingCount = new AtomicLong(0);
+
+    private final AtomicInteger[] scopeToNumber;
+    private final AtomicLong[] scopeToSize;
 
     private CuckooTable table;
     private final int numBuckets;
@@ -66,16 +82,19 @@ public class ConcurrentClockCuckooFilter<T> implements Serializable {
     private final Funnel<? super T> funnel;
     private final HashFunction hasher;
 
-    private AtomicLong numItems;
-    private AtomicLong totalBytes;
-    private final HashMap<Integer, Integer> scopeToNumber;
-    private final HashMap<Integer, Integer> scopeToSize;
-
     private final ScopeEncoder scopeEncoder;
 
     private final SegmentedLock locks;
+    private final int[] segmentedAgingPointers;
 
+    // used for minor aging
     private int agingPointer = 0;
+
+    // if count-based sliding window, windowSize is the number of operations;
+    // if time-based sliding window, windowSize is the milliseconds in a period.
+    private final SlidingWindowType slidingWindowType = SlidingWindowType.COUNT_BASED;
+    private final long windowSize = 64 * Constants.KB;
+    private final long startTime = System.currentTimeMillis();
 
     public static <T> ConcurrentClockCuckooFilter<T> create(
             Funnel<? super T> funnel, long expectedInsertions,
@@ -133,12 +152,19 @@ public class ConcurrentClockCuckooFilter<T> implements Serializable {
         this.bitsPerScope = scopeTable.bitsPerTag();
         this.funnel = funnel;
         this.hasher = hasher;
-        this.numItems = new AtomicLong(0L);
-        this.totalBytes = new AtomicLong(0L);
-        this.scopeToNumber = new HashMap<>();
-        this.scopeToSize = new HashMap<>();
         this.scopeEncoder = new ScopeEncoder(bitsPerScope);
-        this.locks = new SegmentedLock(Math.min(4096, numBuckets >> 1), numBuckets);
+        this.locks = new SegmentedLock(Math.min(DEFAULT_NUM_LOCKS, numBuckets >> 1), numBuckets);
+        // init scope statistics
+        int maxNumScopes = (1 << bitsPerScope);
+        this.scopeToNumber = new AtomicInteger[maxNumScopes];
+        this.scopeToSize = new AtomicLong[maxNumScopes];
+        for (int i = 0; i < maxNumScopes; i++) {
+            this.scopeToNumber[i] = new AtomicInteger(0);
+            this.scopeToSize[i] = new AtomicLong(0);
+        }
+        // init aging pointers for each lock
+        this.segmentedAgingPointers = new int[locks.getNumLocks()];
+        Arrays.fill(segmentedAgingPointers, 0);
     }
 
     public boolean put(T item, int size, ScopeInfo scopeInfo) {
@@ -148,7 +174,13 @@ public class ConcurrentClockCuckooFilter<T> implements Serializable {
         int b2 = altIndex(b1, fp);
         int scope = encodeScope(scopeInfo);
         TagPosition pos = new TagPosition();
-        locks.lockTwoWrite(b1, b2);
+        // Generally, we will hold write locks in two places:
+        // 1) put/delete;
+        // 2) cuckooPathSearch & cuckooPathMove.
+        // But We only execute opportunistic aging in put/delete.
+        // This is because we expect cuckoo path search & move to be as fast as possible,
+        // or it may be more possible to fail.
+        lockTwoWriteAndOpportunisticAging(b1, b2);
         boolean done = cuckooInsertLoop(b1, b2, fp, pos);
         if (done && pos.status == CuckooStatus.OK) {
             // b1 and b2 should be insertable for fp, which means:
@@ -164,8 +196,7 @@ public class ConcurrentClockCuckooFilter<T> implements Serializable {
             // update statistics
             numItems.incrementAndGet();
             totalBytes.addAndGet(size);
-            scopeToNumber.put(scope, scopeToNumber.getOrDefault(scope, 0) + 1);
-            scopeToSize.put(scope, scopeToSize.getOrDefault(scope, 0) + size);
+            updateScopeStatistics(scope, 1, size);
             locks.unlockTwoWrite(b1, b2);
             return true;
         }
@@ -203,14 +234,13 @@ public class ConcurrentClockCuckooFilter<T> implements Serializable {
         int i1 = indexAndTag.index;
         int tag = indexAndTag.tag;
         int i2 = altIndex(i1, tag);
-        locks.lockTwoWrite(i1, i2);
+        lockTwoWriteAndOpportunisticAging(i1, i2);
         TagPosition pos = new TagPosition();
         if (table.deleteTagFromBucket(i1, tag, pos) || table.deleteTagFromBucket(i2, tag, pos)) {
             numItems.decrementAndGet();
             int scope = scopeTable.readTag(pos.getBucketIndex(), pos.getTagIndex());
             int size = sizeTable.readTag(pos.getBucketIndex(), pos.getTagIndex());
-            scopeToNumber.put(scope, scopeToNumber.getOrDefault(scope, 0) - 1);
-            scopeToSize.put(scope, scopeToSize.getOrDefault(scope, 0) - size);
+            updateScopeStatistics(scope, -1, -size);
             // Clear Clock
             clockTable.writeTag(pos.getBucketIndex(), pos.getTagIndex(), 0);
             locks.unlockTwoWrite(i1, i2);
@@ -220,33 +250,32 @@ public class ConcurrentClockCuckooFilter<T> implements Serializable {
         return false;
     }
 
+
+    /**
+     * Check aging progress of each segment.
+     * Should be called on each T/(2^C), where T is the window size and
+     * C is the bits number of the CLOCK field.
+     */
+    public void checkAging() {
+        int numSegments = locks.getNumLocks();
+        int bucketsPerSegment = locks.getNumBucketsPerSegment();
+        for (int i = 0; i < numSegments; i++) {
+            assert segmentedAgingPointers[i] <= bucketsPerSegment;
+            // TODO(iluoeli): avoid acquire locks here since it may be blocked
+            // for a long time if this segment is contended by multiple users.
+            locks.lockOneSegmentWrite(i);
+            if (segmentedAgingPointers[i] < bucketsPerSegment) {
+                agingSegment(i, bucketsPerSegment);
+            }
+            segmentedAgingPointers[i] = 0;
+            locks.unlockOneSegmentWrite(i);
+        }
+    }
+
     public int aging() {
         int numCleaned = 0;
         for (int i = 0; i < numBuckets; i++) {
-            for (int j = 0; j < TAGS_PER_BUCKET; j++) {
-                int tag = table.readTag(i, j);
-                if (tag == 0) {
-                    continue;
-                }
-                int oldClock = clockTable.readTag(i, j);
-                assert oldClock >= 0;
-                if (oldClock > 0) {
-                    clockTable.writeTag(i, j, oldClock - 1);
-                } else if (oldClock == 0) {
-                    // evict stale item
-                    numCleaned++;
-                    table.writeTag(i, j, 0);
-                    numItems.decrementAndGet();
-                    int scope = scopeTable.readTag(i, j);
-                    int size = sizeTable.readTag(i, j);
-                    totalBytes.addAndGet(-size);
-                    scopeToNumber.put(scope, scopeToNumber.getOrDefault(scope, 1) - 1);
-                    scopeToSize.put(scope, scopeToSize.getOrDefault(scope, size) - size);
-                } else {
-                    // should not come to here
-                    System.out.println("Error: aging()");
-                }
-            }
+            numCleaned += agingBucket(i);
         }
         return numCleaned;
     }
@@ -259,29 +288,7 @@ public class ConcurrentClockCuckooFilter<T> implements Serializable {
         }
         for (int p = 0; p < bucketsToAging; p++) {
             int i = (agingPointer + p) % numBuckets;
-            for (int j = 0; j < TAGS_PER_BUCKET; j++) {
-                int tag = table.readTag(i, j);
-                if (tag == 0) {
-                    continue;
-                }
-                int oldClock = clockTable.readTag(i, j);
-                if (oldClock > 0) {
-                    clockTable.writeTag(i, j, oldClock - 1);
-                } else if (oldClock == 0) {
-                    // evict stale item
-                    numCleaned++;
-                    table.writeTag(i, j, 0);
-                    numItems.decrementAndGet();
-                    int scope = scopeTable.readTag(i, j);
-                    int size = sizeTable.readTag(i, j);
-                    totalBytes.addAndGet(-size);
-                    scopeToNumber.put(scope, scopeToNumber.getOrDefault(scope, 1) - 1);
-                    scopeToSize.put(scope, scopeToSize.getOrDefault(scope, size) - size);
-                } else {
-                    // should not come to here
-                    System.out.println("Error: aging()");
-                }
-            }
+            numCleaned += agingBucket(i);
         }
         agingPointer = (agingPointer + bucketsToAging) % numBuckets;
         return numCleaned;
@@ -318,22 +325,29 @@ public class ConcurrentClockCuckooFilter<T> implements Serializable {
                 numBuckets() * tagsPerBucket() * bitsPerScope / 8.0 / Constants.MB);
     }
 
-    public int size() {
+    public int getItemNumber() {
         return numItems.intValue();
     }
 
-    public int size(ScopeInfo scopeInfo) {
+    public int getItemNumber(ScopeInfo scopeInfo) {
         int scope = encodeScope(scopeInfo);
-        return scopeToNumber.getOrDefault(scope, 0);
+        return scopeToNumber[scope].get();
     }
 
-    public int sizeInBytes() {
+    public int getItemSize() {
         return totalBytes.intValue();
     }
 
-    public int sizeInBytes(ScopeInfo scopeInfo) {
+    public int getItemSize(ScopeInfo scopeInfo) {
         int scope = encodeScope(scopeInfo);
-        return scopeToSize.getOrDefault(scope, 0);
+        return scopeToSize[scope].intValue();
+    }
+
+    /**
+     * By calling this method, cuckoo filter is informed of the number of entries have passed.
+     */
+    public void increaseOperationCount(int count) {
+        operationCount.addAndGet(count);
     }
 
     public int numBuckets() {
@@ -375,7 +389,17 @@ public class ConcurrentClockCuckooFilter<T> implements Serializable {
     }
 
     /**
-     * Assert already held the lock of buckets i1 and i2.
+     * A thread-safe method to update scope statistics.
+     */
+    private void updateScopeStatistics(int scope, int number, int size) {
+//        scopeToNumber.put(scope, scopeToNumber.getOrDefault(scope, 0) - 1);
+//        scopeToSize.put(scope, scopeToSize.getOrDefault(scope, 0) - size);
+        scopeToNumber[scope].addAndGet(number);
+        scopeToSize[scope].addAndGet(size);
+    }
+
+    /**
+     * Assume already held the lock of buckets i1 and i2.
      */
     private boolean cuckooInsertLoop(int b1, int b2, int fp, TagPosition pos) {
         int maxRetryNum = 1;
@@ -391,7 +415,7 @@ public class ConcurrentClockCuckooFilter<T> implements Serializable {
     }
 
     /**
-     * Assert already held the lock of buckets i1 and i2.
+     * Assume already held the lock of buckets i1 and i2.
      */
     private boolean cuckooInsert(int b1, int b2, int fp, TagPosition pos) {
         TagPosition pos1 = new TagPosition(), pos2 = new TagPosition();
@@ -430,7 +454,8 @@ public class ConcurrentClockCuckooFilter<T> implements Serializable {
     }
 
     /**
-     * Assert already held the lock of buckets i1 and i2.
+     * Assume already held the lock of buckets i1 and i2.
+     *
      * @return true iff find an empty position (stored in pos); false otherwise.
      */
     private boolean runCuckoo(int b1, int b2, int fp, TagPosition pos) {
@@ -489,7 +514,7 @@ public class ConcurrentClockCuckooFilter<T> implements Serializable {
         }
         for (int i = 1; i <= x.depth; i++) {
             CuckooRecord curr = cuckooPath[i];
-            CuckooRecord prev = cuckooPath[i-1];
+            CuckooRecord prev = cuckooPath[i - 1];
             curr.bucket = altIndex(prev.bucket, prev.fingerprint);
             locks.lockOneWrite(curr.bucket);
             int tag = table.readTag(curr.bucket, curr.slot);
@@ -521,11 +546,11 @@ public class ConcurrentClockCuckooFilter<T> implements Serializable {
                     locks.unlockOneWrite(x.bucket);
                     return x;
                 }
-                if (x.depth < maxPathLen-1) {
+                if (x.depth < maxPathLen - 1) {
                     queue.offer(new BFSEntry(
                             altIndex(b1, tag),
                             x.pathcode * TAGS_PER_BUCKET + slot,
-                            x.depth+1));
+                            x.depth + 1));
                 }
             }
             locks.unlockOneWrite(x.bucket);
@@ -546,7 +571,7 @@ public class ConcurrentClockCuckooFilter<T> implements Serializable {
         }
 
         while (depth > 0) {
-            CuckooRecord from = cuckooPath[depth-1];
+            CuckooRecord from = cuckooPath[depth - 1];
             CuckooRecord to = cuckooPath[depth];
             if (depth == 1) {
                 // NOTE: We must hold the locks of b1 and b2.
@@ -582,6 +607,7 @@ public class ConcurrentClockCuckooFilter<T> implements Serializable {
 
     /**
      * Find tag `fp` in bucket b1 and b2.
+     *
      * @return the position of `fp`.
      */
     private TagPosition cuckooFind(int b1, int b2, int fp) {
@@ -598,6 +624,7 @@ public class ConcurrentClockCuckooFilter<T> implements Serializable {
 
     /**
      * Find tag `fp` in bucket `i`.
+     *
      * @return true if no duplicated key is found, and `pos.slot` points to an empty slot (if pos.tag != -1);
      * otherwise return false, and store the position of duplicated key in `pos.slot`.
      */
@@ -616,5 +643,106 @@ public class ConcurrentClockCuckooFilter<T> implements Serializable {
             }
         }
         return true;
+    }
+
+    /**
+     * Lock two buckets and try opportunistic aging.
+     * Since we hold write locks, we can assure that there are no
+     * other threads aging the same segment.
+     */
+    private void lockTwoWriteAndOpportunisticAging(int b1, int b2) {
+        locks.lockTwoWrite(b1, b2);
+        opportunisticAgingSegment(locks.getSegmentIndex(b1));
+        opportunisticAgingSegment(locks.getSegmentIndex(b2));
+    }
+
+
+    /**
+     * Try opportunistic aging ith segment.
+     * Assume holding the lock of this segment.
+     */
+    private void opportunisticAgingSegment(int i) {
+        int bucketsToAge = computeAgingNumber();
+        agingSegment(i, Math.min(bucketsToAge, MAX_AGING_PER_OPERATION));
+    }
+
+    /**
+     * @Return the number of buckets should be aged.
+     */
+    private int computeAgingNumber() {
+        int bucketsToAge;
+        if (slidingWindowType == SlidingWindowType.COUNT_BASED) {
+            bucketsToAge = (int) (numBuckets * (operationCount.doubleValue() / (windowSize >> bitsPerClock))
+                    - agingCount.get());
+        } else {
+            long elapsedTime = (System.currentTimeMillis() - startTime);
+            bucketsToAge = (int) (numBuckets * (elapsedTime / (windowSize >> bitsPerClock))
+                    - agingCount.get());
+        }
+        return bucketsToAge;
+    }
+
+    /**
+     * Aging the ith segment at most `maxAgingNumber` buckets.
+     * Assume holding the lock of this segment.
+     */
+    private void agingSegment(int i, int maxAgingNumber) {
+        int bucketsPerSegment = locks.getNumBucketsPerSegment();
+        int startPos = locks.getSegmentStartPos(i);
+        int numAgedBuckets = 0;
+        while (numAgedBuckets < maxAgingNumber) {
+            int remainingBuckets = bucketsPerSegment - segmentedAgingPointers[i];
+            assert remainingBuckets >= 0;
+            if (remainingBuckets == 0) {
+                break;
+            }
+            // age `AGING_STEP_SIZE` buckets and re-check window border
+            int bucketsToAge = Math.min(AGING_STEP_SIZE, remainingBuckets);
+            // advance agingCount to inform other threads before real aging
+            int from = startPos + segmentedAgingPointers[i];
+            agingCount.addAndGet(bucketsToAge);
+            segmentedAgingPointers[i] += bucketsToAge;
+            agingRange(from, from + bucketsToAge);
+            numAgedBuckets += bucketsToAge;
+        }
+    }
+
+    /**
+     * Aging buckets in range [from, to].
+     * Assume holding the locks of this range.
+     *
+     * @return the number of cleaned buckets.
+     */
+    private int agingRange(int from, int to) {
+        int numCleaned = 0;
+        for (int i = from; i < to; i++) {
+            numCleaned += agingBucket(i);
+        }
+        return numCleaned;
+    }
+
+    private int agingBucket(int b) {
+        int numCleaned = 0;
+        for (int j = 0; j < TAGS_PER_BUCKET; j++) {
+            int tag = table.readTag(b, j);
+            if (tag == 0) {
+                continue;
+            }
+            int oldClock = clockTable.readTag(b, j);
+            assert oldClock >= 0;
+            if (oldClock > 0) {
+                clockTable.writeTag(b, j, oldClock - 1);
+            } else {
+                // evict stale item
+                numCleaned++;
+                table.writeTag(b, j, 0);
+                numItems.decrementAndGet();
+                int scope = scopeTable.readTag(b, j);
+                int size = sizeTable.readTag(b, j);
+                updateScopeStatistics(scope, -1, -size);
+                totalBytes.addAndGet(-size);
+            }
+        }
+        return numCleaned;
     }
 }

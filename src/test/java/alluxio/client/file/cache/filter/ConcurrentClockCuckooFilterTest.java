@@ -71,7 +71,7 @@ public class ConcurrentClockCuckooFilterTest {
             int s = (1 << i) - 1;
             assertTrue(clockFilter.put(i, s, SCOPE1));
             scope1Size += s;
-            assertEquals(scope1Size, clockFilter.sizeInBytes(SCOPE1));
+            assertEquals(scope1Size, clockFilter.getItemSize(SCOPE1));
         }
         // fill the filter, and expect reallocation to disturb original position
         for (int i = MAX_AGE + 1; i <= EXPECTED_INSERTIONS; i++) {
@@ -80,13 +80,13 @@ public class ConcurrentClockCuckooFilterTest {
             }
         }
         // delete some items and re-check the size of item 1~15
-        assertEquals(scope1Size, clockFilter.sizeInBytes(SCOPE1));
+        assertEquals(scope1Size, clockFilter.getItemSize(SCOPE1));
         for (int i = 1; i <= BITS_PER_SIZE; i++) {
             assertTrue(clockFilter.mightContain(i));
             assertTrue(clockFilter.delete(i));
             assertFalse(clockFilter.mightContain(i));
             scope1Size -= ((1 << i) - 1);
-            assertEquals(scope1Size, clockFilter.sizeInBytes(SCOPE1));
+            assertEquals(scope1Size, clockFilter.getItemSize(SCOPE1));
         }
     }
 
