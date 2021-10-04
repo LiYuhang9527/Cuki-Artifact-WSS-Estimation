@@ -4,6 +4,8 @@ import org.junit.Test;
 
 import static org.junit.Assert.assertTrue;
 
+import alluxio.client.file.cache.filter.ScopeInfo;
+
 public class RandomIntegerDatasetTest {
     private static final long NUM_ENTRY = 1000*100;
     private static final int WINDOW_SIZE = 1000;

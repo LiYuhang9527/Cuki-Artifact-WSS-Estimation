@@ -14,11 +14,11 @@ public class UtilsTest {
         for (int i = 0; i < numBuckets; i++) {
             for (int j = 0; j < tagsPerBucket; j++) {
                 IndexAndTag indexAndTag = Utils.generateIndexAndTag(i * numBuckets + j, numBuckets, bitsPerTag);
-                assertTrue(0 <= indexAndTag.index && indexAndTag.index < numBuckets);
-                assertTrue(0 < indexAndTag.tag && indexAndTag.tag <= ((1 << bitsPerTag) - 1));
-                int altIndex = Utils.altIndex(indexAndTag.index, indexAndTag.tag, numBuckets);
-                int altAltIndex = Utils.altIndex(altIndex, indexAndTag.tag, numBuckets);
-                assertEquals(indexAndTag.index, altAltIndex);
+                assertTrue(0 <= indexAndTag.mBucket && indexAndTag.mBucket < numBuckets);
+                assertTrue(0 < indexAndTag.mTag && indexAndTag.mTag <= ((1 << bitsPerTag) - 1));
+                int altIndex = Utils.altIndex(indexAndTag.mBucket, indexAndTag.mTag, numBuckets);
+                int altAltIndex = Utils.altIndex(altIndex, indexAndTag.mTag, numBuckets);
+                assertEquals(indexAndTag.mBucket, altAltIndex);
             }
         }
     }

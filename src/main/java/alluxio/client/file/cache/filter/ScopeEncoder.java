@@ -1,42 +1,78 @@
+/*
+ * The Alluxio Open Foundation licenses this work under the Apache License, version 2.0
+ * (the "License"). You may not use this work except in compliance with the License, which is
+ * available at www.apache.org/licenses/LICENSE-2.0
+ *
+ * This software is distributed on an "AS IS" basis, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+ * either express or implied, as more fully set forth in the License.
+ *
+ * See the NOTICE file distributed with this work for information regarding copyright ownership.
+ */
+
 package alluxio.client.file.cache.filter;
 
-import alluxio.client.file.cache.dataset.ScopeInfo;
-
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.locks.Lock;
-import java.util.concurrent.locks.ReentrantLock;
 
+/**
+ * A scope encoder that supports encode/decode scope information.
+ */
 public class ScopeEncoder {
-    private final int bitsPerScope;
-    private final int maxNumScopes;
-    private int count; // the next scope id
-    private final ConcurrentHashMap<ScopeInfo, Integer> scopeToId;
-    private final ConcurrentHashMap<Integer, ScopeInfo> idToScope;
-    private final Lock lock;
+  private final int mMaxNumScopes;
+  private final int mScopeMask;
+  private final ConcurrentHashMap<ScopeInfo, Integer> mScopeToId;
+  private final ConcurrentHashMap<Integer, ScopeInfo> mIdToScope;
+  private int mCount; // the next scope id
 
-    public ScopeEncoder(int bitsPerScope) {
-        this.bitsPerScope = bitsPerScope;
-        this.maxNumScopes = (1 << bitsPerScope);
-        this.count = 0;
-        this.scopeToId = new ConcurrentHashMap<>();
-        this.idToScope = new ConcurrentHashMap<>();
-        this.lock = new ReentrantLock();
-    }
+  /**
+   * Create a scope encoder.
+   *
+   * @param bitsPerScope the number of bits the scope has
+   */
+  public ScopeEncoder(int bitsPerScope) {
+    mMaxNumScopes = (1 << bitsPerScope);
+    mScopeMask = mMaxNumScopes - 1;
+    mCount = 0;
+    mScopeToId = new ConcurrentHashMap<>();
+    mIdToScope = new ConcurrentHashMap<>();
+  }
 
-    public int encode(ScopeInfo scopeInfo) {
-        if (!scopeToId.containsKey(scopeInfo)) {
-            lock.lock();
-            if (!scopeToId.containsKey(scopeInfo)) {
-                scopeToId.put(scopeInfo, count);
-                idToScope.put(count, scopeInfo);
-                count++;
-            }
-            lock.unlock();
+  /**
+   * Encode scope information into integer.
+   *
+   * @param scopeInfo the scope will be encoded
+   * @return the encoded scope
+   */
+  public int encode(ScopeInfo scopeInfo) {
+    if (!mScopeToId.containsKey(scopeInfo)) {
+      synchronized (this) {
+        if (!mScopeToId.containsKey(scopeInfo)) {
+          // TODO(iluoeli): make sure scope id is smaller than mMaxNumScopes
+          // Question: If update mScopeToId ahead of updating mIdToScope,
+          // we may read a null scope info in decode.
+          int id = mCount;
+          mCount++;
+          // the following bothersome code is to pass findbugs plugin
+          ScopeInfo oldScope = mIdToScope.putIfAbsent(id, scopeInfo);
+          if (scopeInfo.equals(oldScope)) {
+            scopeInfo = oldScope;
+          }
+          Integer oldId = mScopeToId.putIfAbsent(scopeInfo, id);
+          if (oldId != null) {
+            return oldId & mScopeMask;
+          }
         }
-        return scopeToId.get(scopeInfo);
+      }
     }
+    return mScopeToId.get(scopeInfo) & mScopeMask;
+  }
 
-    public ScopeInfo decode(int id) {
-        return idToScope.get(id);
-    }
+  /**
+   * Decode scope information from integer.
+   *
+   * @param id the encoded scope id will be decoded
+   * @return the decoded scope information
+   */
+  public ScopeInfo decode(int id) {
+    return mIdToScope.get(id);
+  }
 }

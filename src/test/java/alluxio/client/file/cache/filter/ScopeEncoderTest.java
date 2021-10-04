@@ -1,6 +1,5 @@
 package alluxio.client.file.cache.filter;
 
-import alluxio.client.file.cache.dataset.ScopeInfo;
 import alluxio.test.util.ConcurrencyUtils;
 import org.junit.Before;
 import org.junit.Test;

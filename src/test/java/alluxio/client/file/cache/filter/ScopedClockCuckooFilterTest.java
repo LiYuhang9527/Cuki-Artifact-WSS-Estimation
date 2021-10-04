@@ -1,6 +1,5 @@
 package alluxio.client.file.cache.filter;
 
-import alluxio.client.file.cache.dataset.ScopeInfo;
 import com.google.common.hash.Funnels;
 import org.junit.Test;
 

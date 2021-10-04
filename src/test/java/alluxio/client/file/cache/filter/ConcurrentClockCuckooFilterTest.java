@@ -1,7 +1,6 @@
 package alluxio.client.file.cache.filter;
 
-import alluxio.client.file.cache.Constants;
-import alluxio.client.file.cache.dataset.ScopeInfo;
+import alluxio.Constants;
 import alluxio.test.util.ConcurrencyUtils;
 import com.google.common.hash.Funnels;
 import org.junit.Before;
@@ -112,7 +111,7 @@ public class ConcurrentClockCuckooFilterTest {
         // then check whether it exists after every insertion.
         assertTrue(clockFilter.put(1, 1, SCOPE1));
         assertTrue(clockFilter.mightContain(1));
-        int totalTags = clockFilter.numBuckets() * clockFilter.tagsPerBucket();
+        int totalTags = clockFilter.getNumBuckets() * clockFilter.getTagsPerBucket();
         List<Runnable> runnables = new ArrayList<>();
         for (int k = 0; k < DEFAULT_THREAD_AMOUNT; k++) {
             runnables.add(() -> {
