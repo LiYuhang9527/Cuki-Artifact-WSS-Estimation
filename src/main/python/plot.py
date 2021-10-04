@@ -10,13 +10,12 @@ def load_csv(filename):
 
 # 0             1       2           3   4           5       6
 # #operation	Real	Real(bytes)	MBF	MBF(bytes)	CCF	CCF(bytes)
-# X = load_csv(dir + 'MinorAgingRandomBench.csv')
-# X = load_csv(dir + 'MinorAgingSequencialBench.csv')
-# X = load_csv(dir + 'SequencialBench2.csv')
-# X = load_csv(dir + 'RandomBench-c4.csv')
-# X = load_csv(dir + 'msr/prxy0.csv')
-# X = load_csv(dir + 'twitter/cluster37.0.csv')
-X = load_csv(dir + 'concurrency/prxy0.csv')
+# filename = dir + 'twitter/cluster37.0.csv'
+# filename = dir + 'concurrency/twitter-8mb.csv'
+# filename = dir + 'concurrency/prxy0-test.csv'
+filename = 'G:/git_repo/working-set-size-estimation/src/main/benchmarks/' + '20211004/twitter.csv'
+
+X = load_csv(filename)
 
 num_subplots = 2
 plt.figure(0, figsize=(16, 2 *4))
@@ -41,7 +40,7 @@ plt.ylabel('WSS (Bytes)')
 
 plt.xlabel('# operation')
 
-plt.savefig(dir + 'concurrency/prxy0.png', dpi=300)
+plt.savefig(filename.replace("csv", "png"), dpi=300)
 
 # Compute average error
 print('Average Error of MBF(Number)', np.divide(X[:,3], X[:,1]).mean()-1.0)
