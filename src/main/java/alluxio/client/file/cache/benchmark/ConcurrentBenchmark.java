@@ -24,6 +24,7 @@ import alluxio.client.file.cache.dataset.generator.RandomEntryGenerator;
 import alluxio.client.file.cache.dataset.generator.SequentialEntryGenerator;
 import alluxio.client.file.cache.dataset.generator.TwitterEntryGenerator;
 import alluxio.client.file.cache.filter.ConcurrentClockCuckooFilter;
+import alluxio.client.file.cache.filter.ConcurrentClockCuckooFilterWithSizeGroup;
 import alluxio.client.file.cache.filter.IClockCuckooFilter;
 import alluxio.client.file.cache.filter.SlidingWindowType;
 
@@ -131,11 +132,11 @@ public class ConcurrentBenchmark {
     // make sure cuckoo filter size dot not exceed the memory budget
     long expectedInsertions = (long) (Long.highestOneBit(totalSlots) * 0.955);
     if (mOpportunisticAging) {
-      mClockFilter = ConcurrentClockCuckooFilter.create(ShadowCache.PageIdFunnel.FUNNEL,
+      mClockFilter = ConcurrentClockCuckooFilterWithSizeGroup.create(ShadowCache.PageIdFunnel.FUNNEL,
           expectedInsertions, mClockBits, BITS_PER_SIZE, BITS_PER_SCOPE,
           SlidingWindowType.COUNT_BASED, mWindowSize);
     } else {
-      mClockFilter = ConcurrentClockCuckooFilter.create(ShadowCache.PageIdFunnel.FUNNEL,
+      mClockFilter = ConcurrentClockCuckooFilterWithSizeGroup.create(ShadowCache.PageIdFunnel.FUNNEL,
           expectedInsertions, mClockBits, BITS_PER_SIZE, BITS_PER_SCOPE);
     }
     mCcfAgingPeriod = mWindowSize >> mClockBits;
