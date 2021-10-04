@@ -30,7 +30,7 @@ import java.util.concurrent.atomic.AtomicLong;
  *
  * @param <T> the type of item
  */
-public class ConcurrentClockCuckooFilter<T> implements Serializable {
+public class ConcurrentClockCuckooFilter<T> implements IClockCuckooFilter<T>, Serializable {
   private static final long serialVersionUID = 1L;
 
   private static final double DEFAULT_FPP = 0.01;
