@@ -201,7 +201,7 @@ public class ConcurrentBenchmark {
 
       long startFilterTick = System.currentTimeMillis();
       PageId item = new PageId("table1", entry.getItem().hashCode());
-      if (!mClockFilter.mightContainAndResetClock(item)) {
+      if (!mClockFilter.mightContainAndResetClock(item, entry.getSize(), entry.getScopeInfo())) {
         mClockFilter.put(item, entry.getSize(), entry.getScopeInfo());
       }
       mClockFilter.increaseOperationCount(1);

@@ -17,6 +17,8 @@ public interface IClockCuckooFilter<T> {
 
   public boolean mightContainAndResetClock(T item);
 
+  public boolean mightContainAndResetClock(T item, int size, ScopeInfo scopeInfo);
+
   public boolean mightContain(T item);
 
   public boolean delete(T item);

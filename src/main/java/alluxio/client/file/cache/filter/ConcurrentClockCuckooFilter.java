@@ -317,6 +317,11 @@ public class ConcurrentClockCuckooFilter<T> implements IClockCuckooFilter<T>, Se
     return mightContainAndOptionalResetClock(item, true);
   }
 
+  @Override
+  public boolean mightContainAndResetClock(T item, int size, ScopeInfo scopeInfo) {
+    return mightContainAndResetClock(item);
+  }
+
   /**
    * Check whether an item is in cuckoo filter or not. This method will not change item's clock.
    *
