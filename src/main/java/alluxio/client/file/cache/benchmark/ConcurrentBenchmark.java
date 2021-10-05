@@ -1,7 +1,7 @@
 /*
- * The Alluxio Open Foundation licenses this work under the Apache License, version 2.0 (the
- * "License"). You may not use this work except in compliance with the License, which is available
- * at www.apache.org/licenses/LICENSE-2.0
+ * The Alluxio Open Foundation licenses this work under the Apache License, version 2.0
+ * (the "License"). You may not use this work except in compliance with the License, which is
+ * available at www.apache.org/licenses/LICENSE-2.0
  *
  * This software is distributed on an "AS IS" basis, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
  * either express or implied, as more fully set forth in the License.
@@ -21,6 +21,7 @@ import alluxio.client.file.cache.dataset.GeneralDataset;
 import alluxio.client.file.cache.dataset.generator.EntryGenerator;
 import alluxio.client.file.cache.dataset.generator.MSREntryGenerator;
 import alluxio.client.file.cache.dataset.generator.RandomEntryGenerator;
+import alluxio.client.file.cache.dataset.generator.SequentialEntryGenerator;
 import alluxio.client.file.cache.dataset.generator.TwitterEntryGenerator;
 import alluxio.client.file.cache.filter.ConcurrentClockCuckooFilter;
 import alluxio.client.file.cache.filter.IClockCuckooFilter;
@@ -45,17 +46,18 @@ public class ConcurrentBenchmark {
           .addOption("benchmark", true, "The benchmark type.")
           .addOption("trace", true, "The path to trace.")
           .addOption("max_entries", true, "The maximum number of entries will be loaded.")
+          .addOption("num_unique_entries", true, "The number of unique entries.")
           .addOption("memory", true, "The memory overhead in MB.")
           .addOption("window_size", true, "The size of sliding window.")
           .addOption("clock_bits", true, "The number of bits of clock field.")
-          .addOption("opportunistic_aging", false, "Enable opportunistic aging.")
-          .addOption("report_file", true,
-                  "The file where reported information will be written to.");
+          .addOption("opportunistic_aging", false, "Enable opportunistic aging.").addOption(
+              "report_file", true, "The file where reported information will be written to.");
 
   private static boolean mHelp;
   private static String mBenchmark;
   private static String mTrace;
   private static long mMaxEntries;
+  private static int mNumUniqueEntries;
   private static int mMemoryOverhead;
   private static int mWindowSize;
   private static int mClockBits;
@@ -86,6 +88,7 @@ public class ConcurrentBenchmark {
     mBenchmark = cmd.getOptionValue("benchmark", "Random");
     mTrace = cmd.getOptionValue("trace", "");
     mMaxEntries = Long.parseLong(cmd.getOptionValue("max_entries", "1024"));
+    mNumUniqueEntries = Integer.parseInt(cmd.getOptionValue("num_unique_entries", "1024"));
     mMemoryOverhead = Integer.parseInt(cmd.getOptionValue("memory", "1"));
     mWindowSize = Integer.parseInt(cmd.getOptionValue("window_size", "512"));
     mClockBits = Integer.parseInt(cmd.getOptionValue("clock_bits", "2"));
@@ -98,7 +101,10 @@ public class ConcurrentBenchmark {
     EntryGenerator<String> generator;
     switch (mBenchmark) {
       case "random":
-        generator = new RandomEntryGenerator(mMaxEntries);
+        generator = new RandomEntryGenerator(mMaxEntries, 1, mNumUniqueEntries + 1);
+        break;
+      case "sequential":
+        generator = new SequentialEntryGenerator(mMaxEntries, 1, mNumUniqueEntries + 1);
         break;
       case "msr":
         generator = new MSREntryGenerator(mTrace);
@@ -115,8 +121,9 @@ public class ConcurrentBenchmark {
     // init cuckoo filter
     long budgetInBits = mMemoryOverhead * Constants.MB * 8;
     long bitsPerSlot = BITS_PER_TAG + mClockBits + BITS_PER_SIZE + BITS_PER_SCOPE;
-    long totalBuckets = budgetInBits / bitsPerSlot / SLOTS_PER_BUCKET;
-    long expectedInsertions = Long.highestOneBit(totalBuckets);
+    long totalSlots = budgetInBits / bitsPerSlot;
+    // make sure cuckoo filter size dot not exceed the memory budget
+    long expectedInsertions = (long) (Long.highestOneBit(totalSlots) * 0.955);
     if (mOpportunisticAging) {
       mClockFilter = ConcurrentClockCuckooFilter.create(ShadowCache.PageIdFunnel.FUNNEL,
           expectedInsertions, mClockBits, BITS_PER_SIZE, BITS_PER_SCOPE,
@@ -150,8 +157,8 @@ public class ConcurrentBenchmark {
 
   private static void usage() {
     new HelpFormatter().printHelp(String.format(
-        "java -cp <JAR>> %s -benchmark <[random, msr, twitter]> -trace <path> -max_entries <entries> "
-            + "-memory <memory> -window_size <window_size> -clock_bits <clock_bits>",
+        "java -cp <JAR>> %s -benchmark <[random, seq, msr, twitter]> -trace <path> -max_entries <entries> "
+            + "-memory <memory> -window_size <window_size> -clock_bits <clock_bits> ...",
         ConcurrentBenchmark.class.getCanonicalName()),
         "run a mini benchmark to write or read a file", OPTIONS, "", true);
   }

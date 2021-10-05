@@ -12,27 +12,22 @@
 package alluxio.client.file.cache.dataset.generator;
 
 import alluxio.client.file.cache.dataset.DatasetEntry;
-import alluxio.client.file.cache.filter.ScopeInfo;
 
-import java.util.Random;
-import java.util.concurrent.atomic.AtomicLong;
+public class SequentialEntryGenerator implements EntryGenerator<String> {
+  private final SequentialIntegerEntryGenerator mGenerator;
 
-public class RandomEntryGenerator implements EntryGenerator<String> {
-
-  private final RandomIntegerEntryGenerator mGenerator;
-
-  public RandomEntryGenerator(long numEntries) {
-    mGenerator = new RandomIntegerEntryGenerator(numEntries);
+  public SequentialEntryGenerator(long numEntries) {
+    mGenerator = new SequentialIntegerEntryGenerator(numEntries);
   }
 
-  public RandomEntryGenerator(long numEntries, int lowerBound, int upperBound) {
-    mGenerator = new RandomIntegerEntryGenerator(numEntries, lowerBound, upperBound);
+  public SequentialEntryGenerator(long numEntries, int lowerBound, int upperBound) {
+    mGenerator = new SequentialIntegerEntryGenerator(numEntries, lowerBound, upperBound);
   }
 
-  public RandomEntryGenerator(long numEntries, int lowerBound, int upperBound, int lowerBoundSize,
-      int upperBoundSize, int numScopes, int seed) {
-    mGenerator = new RandomIntegerEntryGenerator(numEntries, lowerBound, upperBound, lowerBoundSize,
-        upperBoundSize, numScopes, seed);
+  public SequentialEntryGenerator(long numEntries, int lowerBound, int upperBound,
+      int lowerBoundSize, int upperBoundSize, int numScopes) {
+    mGenerator = new SequentialIntegerEntryGenerator(numEntries, lowerBound, upperBound,
+        lowerBoundSize, upperBoundSize, numScopes);
   }
 
   @Override

@@ -13,41 +13,41 @@ package alluxio.client.file.cache.filter;
 
 public interface IClockCuckooFilter<T> {
 
-    public boolean put(T item, int size, ScopeInfo scopeInfo);
+  public boolean put(T item, int size, ScopeInfo scopeInfo);
 
-    public boolean mightContainAndResetClock(T item);
+  public boolean mightContainAndResetClock(T item);
 
-    public boolean mightContain(T item);
+  public boolean mightContain(T item);
 
-    public boolean delete(T item);
+  public boolean delete(T item);
 
-    public void aging();
+  public void aging();
 
-    public int getAge(T item);
+  public int getAge(T item);
 
-    public String getSummary();
+  public String getSummary();
 
-    public double expectedFpp();
+  public double expectedFpp();
 
-    public int getItemNumber();
+  public int getItemNumber();
 
-    public int getItemNumber(ScopeInfo scopeInfo);
+  public int getItemNumber(ScopeInfo scopeInfo);
 
-    public int getItemSize();
+  public int getItemSize();
 
-    public int getItemSize(ScopeInfo scopeInfo);
+  public int getItemSize(ScopeInfo scopeInfo);
 
-    public void increaseOperationCount(int count);
+  public void increaseOperationCount(int count);
 
-    public int getNumBuckets();
+  public int getNumBuckets();
 
-    public int getTagsPerBucket();
+  public int getTagsPerBucket();
 
-    public int getBitsPerTag();
+  public int getBitsPerTag();
 
-    public int getBitsPerClock();
+  public int getBitsPerClock();
 
-    public int getBitsPerSize();
+  public int getBitsPerSize();
 
-    public int getBitsPerScope();
+  public int getBitsPerScope();
 }

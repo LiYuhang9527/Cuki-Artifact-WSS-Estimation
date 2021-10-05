@@ -13,7 +13,8 @@ def load_csv(filename):
 # filename = dir + 'twitter/cluster37.0.csv'
 # filename = dir + 'concurrency/twitter-8mb.csv'
 # filename = dir + 'concurrency/prxy0-test.csv'
-filename = 'G:/git_repo/working-set-size-estimation/src/main/benchmarks/' + '20211004/twitter.csv'
+# filename = 'G:/git_repo/working-set-size-estimation/src/main/benchmarks/' + '20211004/random-group.csv'
+filename = 'G:/git_repo/working-set-size-estimation/src/main/benchmarks/' + '20211004/random-clock4.csv'
 
 X = load_csv(filename)
 
