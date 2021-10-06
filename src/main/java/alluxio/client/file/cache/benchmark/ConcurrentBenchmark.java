@@ -50,7 +50,7 @@ public class ConcurrentBenchmark {
           .addOption("memory", true, "The memory overhead in MB.")
           .addOption("window_size", true, "The size of sliding window.")
           .addOption("clock_bits", true, "The number of bits of clock field.")
-          .addOption("opportunistic_aging", false, "Enable opportunistic aging.").addOption(
+          .addOption("opportunistic_aging", true, "Enable opportunistic aging.").addOption(
               "report_file", true, "The file where reported information will be written to.");
 
   private static boolean mHelp;
@@ -92,7 +92,7 @@ public class ConcurrentBenchmark {
     mMemoryOverhead = Integer.parseInt(cmd.getOptionValue("memory", "1"));
     mWindowSize = Integer.parseInt(cmd.getOptionValue("window_size", "512"));
     mClockBits = Integer.parseInt(cmd.getOptionValue("clock_bits", "2"));
-    mOpportunisticAging = cmd.hasOption("opportunistic_aging");
+    mOpportunisticAging = Boolean.parseBoolean(cmd.getOptionValue("opportunistic_aging", "true"));
     mReportFile = cmd.getOptionValue("report_file", "stdout");
     return true;
   }
@@ -165,8 +165,9 @@ public class ConcurrentBenchmark {
 
   private static void printArguments() {
     System.out.printf(
-        "-benchmark %s -trace %s -max_entries %d -memory %d -window_size %d -clock_bits %d\n",
-        mBenchmark, mTrace, mMaxEntries, mMemoryOverhead, mWindowSize, mClockBits);
+        "-benchmark %s -trace %s -max_entries %d -memory %d -window_size %d -clock_bits %d -opportunistic_aging %b\n",
+        mBenchmark, mTrace, mMaxEntries, mMemoryOverhead, mWindowSize, mClockBits,
+        mOpportunisticAging);
   }
 
   public static void main(String[] args) {
