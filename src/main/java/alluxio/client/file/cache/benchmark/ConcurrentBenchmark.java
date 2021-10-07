@@ -50,8 +50,9 @@ public class ConcurrentBenchmark {
           .addOption("memory", true, "The memory overhead in MB.")
           .addOption("window_size", true, "The size of sliding window.")
           .addOption("clock_bits", true, "The number of bits of clock field.")
-          .addOption("opportunistic_aging", true, "Enable opportunistic aging.").addOption(
-              "report_file", true, "The file where reported information will be written to.");
+          .addOption("opportunistic_aging", true, "Enable opportunistic aging.")
+          .addOption("report_file", true, "The file where reported information will be written to.")
+          .addOption("report_interval", true, "The interval of reporting.");
 
   private static boolean mHelp;
   private static String mBenchmark;
@@ -63,6 +64,8 @@ public class ConcurrentBenchmark {
   private static int mClockBits;
   private static boolean mOpportunisticAging;
   private static String mReportFile;
+  private static int mReportInterval;
+
 
   private static Dataset<String> mDataset;
 
@@ -94,6 +97,9 @@ public class ConcurrentBenchmark {
     mClockBits = Integer.parseInt(cmd.getOptionValue("clock_bits", "2"));
     mOpportunisticAging = Boolean.parseBoolean(cmd.getOptionValue("opportunistic_aging", "true"));
     mReportFile = cmd.getOptionValue("report_file", "stdout");
+    int defaultReportInterval = Math.max(1, (mWindowSize >> (mClockBits + 2)));
+    mReportInterval = Integer
+        .parseInt(cmd.getOptionValue("report_interval", Integer.toString(defaultReportInterval)));
     return true;
   }
 
@@ -165,9 +171,9 @@ public class ConcurrentBenchmark {
 
   private static void printArguments() {
     System.out.printf(
-        "-benchmark %s -trace %s -max_entries %d -memory %d -window_size %d -clock_bits %d -opportunistic_aging %b\n",
-        mBenchmark, mTrace, mMaxEntries, mMemoryOverhead, mWindowSize, mClockBits,
-        mOpportunisticAging);
+        "-benchmark %s -trace %s -max_entries %d -memory %d -window_size %d -num_unique_entries %d -clock_bits %d -opportunistic_aging %b\n",
+        mBenchmark, mTrace, mMaxEntries, mMemoryOverhead, mWindowSize, mNumUniqueEntries,
+        mClockBits, mOpportunisticAging);
   }
 
   public static void main(String[] args) {
@@ -188,58 +194,81 @@ public class ConcurrentBenchmark {
     System.out.println();
     System.out.println("CCF summary:\n" + mClockFilter.getSummary());
 
-    int cnt = 0;
+    long opsCount = 0;
     long totalDuration = 0;
-    long agingDuration = 0, bfAgingDuration = 0;
-    long filterDuration = 0, bfFilterDuration = 0;
-    int cfAgingCount = 0, bfAgingCount = 0;
+    long ccfAgingDuration = 0, mbfAgingDuration = 0;
+    long ccfFilterDuration = 0, mbfFilterDuration = 0;
+    long ccfAgingCount = 0, mbfAgingCount = 0;
+    double ccfError = .0, mbfError = .0;
+    double ccfByteError = .0, mbfByteError = .0;
+    long errCnt = 0;
     long stackTick = System.currentTimeMillis();
-    mStream.println("#operation" + "\t" + "Real" + "\t" + "Real(bytes)" + "\t" + "MBF" + "\t"
-        + "MBF(bytes)" + "\t" + "CCF" + "\t" + "CCF(bytes)");
-    while (mDataset.hasNext() && cnt < mMaxEntries) {
-      cnt++;
+    mStream.println("#operation\tReal\tReal(bytes)\tMBF\tMBF(bytes)\tCCF\tCCF(bytes)");
+    while (mDataset.hasNext() && opsCount < mMaxEntries) {
+      opsCount++;
       DatasetEntry<String> entry = mDataset.next();
 
-      long startFilterTick = System.currentTimeMillis();
       PageId item = new PageId("table1", entry.getItem().hashCode());
+      long startFilterTick = System.currentTimeMillis();
       if (!mClockFilter.mightContainAndResetClock(item, entry.getSize(), entry.getScopeInfo())) {
         mClockFilter.put(item, entry.getSize(), entry.getScopeInfo());
       }
       mClockFilter.increaseOperationCount(1);
-      filterDuration += System.currentTimeMillis() - startFilterTick;
+      ccfFilterDuration += System.currentTimeMillis() - startFilterTick;
 
+      byte[] page = new byte[entry.getSize()];
       long startBFTick = System.currentTimeMillis();
-      mCacheManager.put(item, new byte[entry.getSize()], mContext);
-      bfFilterDuration += System.currentTimeMillis() - startBFTick;
+      mCacheManager.put(item, page, mContext);
+      mbfFilterDuration += System.currentTimeMillis() - startBFTick;
 
       // Aging CCF
-      if (cnt % mCcfAgingPeriod == 0) {
-        cfAgingCount++;
+      if (opsCount % mCcfAgingPeriod == 0) {
+        ccfAgingCount++;
         long startAgingTick = System.currentTimeMillis();
         mClockFilter.aging();
-        agingDuration += System.currentTimeMillis() - startAgingTick;
+        ccfAgingDuration += System.currentTimeMillis() - startAgingTick;
       }
 
       // Aging BF
-      if (cnt % mBfAgingPeriod == 0) {
-        bfAgingCount++;
+      if (opsCount % mBfAgingPeriod == 0) {
+        mbfAgingCount++;
         long startAgingTick = System.currentTimeMillis();
         mCacheManager.switchBloomFilter();
-        bfAgingDuration += System.currentTimeMillis() - startAgingTick;
+        mbfAgingDuration += System.currentTimeMillis() - startAgingTick;
       }
 
-      if (cnt % (mWindowSize >> (mClockBits + 2)) == 0) {
-        mStream.println(
-            cnt + "\t" + mDataset.getRealEntryNumber() + "\t" + mDataset.getRealEntrySize() + "\t"
-                + mCacheManager.getShadowCachePages() + "\t" + mCacheManager.getShadowCacheBytes()
-                + "\t" + mClockFilter.getItemNumber() + "\t" + mClockFilter.getItemSize());
+      // report
+      if (opsCount % mReportInterval == 0) {
+        mCacheManager.updateWorkingSetSize();
+        long realNum = mDataset.getRealEntryNumber();
+        long realByte = mDataset.getRealEntrySize();
+        long mbfNum = mCacheManager.getShadowCachePages();
+        long mbfByte = mCacheManager.getShadowCacheBytes();
+        long ccfNum = mClockFilter.getItemNumber();
+        long ccfByte = mClockFilter.getItemSize();
+        mStream.println(opsCount + "\t" + realNum + "\t" + realByte + "\t" + mbfNum + "\t" + mbfByte
+            + "\t" + ccfNum + "\t" + ccfByte);
+        // accumulate error
+        errCnt++;
+        mbfError += Math.abs(mbfNum / (double) realNum - 1.0);
+        mbfByteError += Math.abs(mbfByte / (double) realByte - 1.0);
+        ccfError += Math.abs(ccfNum / (double) realNum - 1.0);
+        ccfByteError += Math.abs(ccfByte / (double) realByte - 1.0);
       }
     }
     totalDuration = (System.currentTimeMillis() - stackTick);
     System.out.println();
     System.out.println("TotalTime(ms)\t" + totalDuration);
-    System.out.println(" \tPut/Get(ms)\tAging(ms)\tAgingCount\n" + "MBF\t" + bfFilterDuration + "\t"
-        + bfAgingDuration + "\t" + bfAgingCount + "\n" + "CCF\t" + filterDuration + "\t"
-        + agingDuration + "\t" + cfAgingCount);
+    System.out.println();
+    System.out.println(
+        "Type\tPut/Get(ms)\tAging(ms)\tAgingCnt\tops/sec\tops/sec(aging)\tErr(Num)\tErr(Byte)\n");
+    System.out.printf("MBF\t%d\t%d\t%d\t%.2f\t%.2f\t%.4f%%\t%.4f%%\n", mbfFilterDuration,
+        mbfAgingDuration, mbfAgingCount, opsCount * 1000 / (double) mbfFilterDuration,
+        opsCount * 1000 / (double) (mbfFilterDuration + mbfAgingDuration), mbfError * 100 / errCnt,
+        mbfByteError * 100 / errCnt);
+    System.out.printf("CCF\t%d\t%d\t%d\t%.2f\t%.2f\t%.4f%%\t%.4f%%\n", ccfFilterDuration,
+        ccfAgingDuration, ccfAgingCount, opsCount * 1000 / (double) ccfFilterDuration,
+        opsCount * 1000 / (double) (ccfFilterDuration + ccfAgingDuration), ccfError * 100 / errCnt,
+        ccfByteError * 100 / errCnt);
   }
 }
