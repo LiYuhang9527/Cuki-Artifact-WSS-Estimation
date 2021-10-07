@@ -141,7 +141,7 @@ public class ConcurrentBenchmark {
     mCcfAgingPeriod = mWindowSize >> mClockBits;
 
     // init bloom filter
-    mCacheManager = new ShadowCache();
+    mCacheManager = new ShadowCache(mMemoryOverhead);
     mContext = new CacheContext();
     mBfAgingPeriod = mWindowSize >> 2; // Aging each T/4
 

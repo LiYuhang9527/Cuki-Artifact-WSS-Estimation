@@ -11,6 +11,8 @@
 
 package alluxio.client.file.cache;
 
+import alluxio.Constants;
+
 import com.codahale.metrics.Counter;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.hash.BloomFilter;
@@ -24,9 +26,10 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicLongArray;
 import java.util.concurrent.atomic.AtomicReferenceArray;
 
-import static java.util.concurrent.TimeUnit.MILLISECONDS;
-
 public class ShadowCache {
+  private static final int DEFAULT_MEMORY = 125;
+
+  private final int mMemoryOverhead; // memory overhead in mb
   private final int mNumBloomFilter;
   private final long mBloomFilterExpectedInsertions;
   // An array of bloom filters, and each capture a segment of window
@@ -46,10 +49,15 @@ public class ShadowCache {
   private double mAvgPageSize;
 
   public ShadowCache() {
+    this(DEFAULT_MEMORY);
+  }
+
+  public ShadowCache(int memoryOverhead) {
+    mMemoryOverhead = memoryOverhead;
     // long windowMs = conf.getMs(PropertyKey.USER_CLIENT_CACHE_SHADOW_WINDOW);
     mNumBloomFilter = 4;
     // include the 1 extra working set bloom filter
-    long perBloomFilterMemoryOverhead = 125 * 1024 * 1024 / (mNumBloomFilter + 1);
+    long perBloomFilterMemoryOverhead = mMemoryOverhead * Constants.MB * 8 / (mNumBloomFilter + 1);
     // assume 3% Guava default false positive ratio
     mBloomFilterExpectedInsertions =
         (long) ((-perBloomFilterMemoryOverhead * Math.log(2) * Math.log(2)) / Math.log(0.03));
