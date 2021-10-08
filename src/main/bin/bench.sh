@@ -14,6 +14,7 @@ NUM_UNIQUE_ENTRIES=${MAX_ENTRIES} # used for random & sequential benchmark
 CLOCK_BITS="2"
 OPPO_AGING="true"
 REPORT_DIR="/datasets/benchmarks/bench"
+REPORT_INTERVAL=64
 
 to_brief_string() {
   local size=$1
@@ -44,6 +45,7 @@ bench_one() {
     -clock_bits ${CLOCK_BITS} \
     -opportunistic_aging ${OPPO_AGING} \
     -report_file ${REPORT_FILE} \
+    -report_interval ${REPORT_INTERVAL} \
     >> ${LOG_FILE}
 }
 
