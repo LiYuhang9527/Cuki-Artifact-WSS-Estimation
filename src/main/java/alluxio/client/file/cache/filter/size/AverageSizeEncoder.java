@@ -21,8 +21,10 @@ public class AverageSizeEncoder extends SizeEncoder {
   public void access(int size) {
     // average the total size whenever an entry is accessed
     int group = getSizeGroup(size);
+    long oldGroupSize = buckets[group].getSize();
     buckets[group].add(size);
     buckets[group].decrement();
+    totalBytes.addAndGet(buckets[group].getSize() - oldGroupSize);
   }
 }
 

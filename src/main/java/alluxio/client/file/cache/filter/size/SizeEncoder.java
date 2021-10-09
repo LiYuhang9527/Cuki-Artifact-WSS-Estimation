@@ -11,12 +11,17 @@
 
 package alluxio.client.file.cache.filter.size;
 
+import java.util.concurrent.atomic.AtomicLong;
+
 public class SizeEncoder implements ISizeEncoder {
   protected final int maxSizeBits;
   protected final int sizeGroupBits;
   protected final int bitsPerBucket;
   protected final int numBuckets;
   protected final Bucket[] buckets;
+
+  protected final AtomicLong totalBytes = new AtomicLong(0);
+  protected final AtomicLong totalCounts = new AtomicLong(0);
 
   public SizeEncoder(int maxSizeBits, int numBucketsBits) {
     this.maxSizeBits = maxSizeBits;
@@ -30,28 +35,25 @@ public class SizeEncoder implements ISizeEncoder {
   }
 
   public void add(int size) {
+    totalBytes.addAndGet(size);
+    totalCounts.incrementAndGet();
     buckets[getSizeGroup(size)].add(size);
   }
 
   public int dec(int group) {
-    return buckets[group].decrement();
+    int size =  buckets[group].decrement();
+    totalBytes.addAndGet(-size);
+    totalCounts.decrementAndGet();
+    return size;
   }
 
   public long getTotalSize() {
-    long totalSize = 0;
-    for (int i = 0; i < numBuckets; i++) {
-      totalSize += buckets[i].getSize();
-    }
-    return totalSize;
+    return totalBytes.get();
   }
 
   @Override
   public long getTotalCount() {
-    long totalCount = 0;
-    for (int i=0; i < numBuckets; i++) {
-      totalCount += buckets[i].getCount();
-    }
-    return totalCount;
+    return totalCounts.get();
   }
 
   protected int getSizeGroup(int size) {

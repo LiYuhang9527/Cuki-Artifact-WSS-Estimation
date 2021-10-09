@@ -12,6 +12,7 @@
 package alluxio.client.file.cache.filter.size;
 
 import java.util.LinkedList;
+import java.util.concurrent.atomic.AtomicLong;
 
 public class LRUSizeEncoder implements ISizeEncoder {
   private final int maxSizeBits;
@@ -22,6 +23,9 @@ public class LRUSizeEncoder implements ISizeEncoder {
   private final int numBucketsPerGroup;
   private final int sizePerGroup;
   private final LRUGroup groups[];
+
+  private final AtomicLong totalBytes = new AtomicLong(0);
+  private final AtomicLong totalCounts = new AtomicLong(0);
 
   public LRUSizeEncoder(int maxSizeBits, int numGroupBits, int numBucketBits) {
     this.maxSizeBits = maxSizeBits;
@@ -38,11 +42,16 @@ public class LRUSizeEncoder implements ISizeEncoder {
   }
 
   public void add(int size) {
+    totalBytes.addAndGet(size);
+    totalCounts.incrementAndGet();
     groups[getGroup(size)].add(maskSize(size));
   }
 
   public int dec(int group) {
-    return groups[group].dec();
+    int size = groups[group].dec();
+    totalBytes.addAndGet(-size - sizePerGroup * group);
+    totalCounts.decrementAndGet();
+    return size;
   }
 
   @Override
@@ -51,21 +60,12 @@ public class LRUSizeEncoder implements ISizeEncoder {
   }
 
   public long getTotalSize() {
-    long totalSize = 0;
-    for (int i = 0; i < numGroups; i++) {
-      totalSize += groups[i].getTotalSize()
-          + groups[i].getTotalCount() * sizePerGroup * i;
-    }
-    return totalSize;
+    return totalBytes.get();
   }
 
   @Override
   public long getTotalCount() {
-    long totalCount = 0;
-    for (int i=0; i < numGroups; i++) {
-      totalCount += groups[i].getTotalCount();
-    }
-    return totalCount;
+    return totalCounts.get();
   }
 
   private int getGroup(int size) {
