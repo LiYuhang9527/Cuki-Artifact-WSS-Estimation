@@ -13,7 +13,7 @@ package alluxio.client.file.cache.filter;
 
 import alluxio.Constants;
 import alluxio.client.file.cache.filter.size.ISizeEncoder;
-import alluxio.client.file.cache.filter.size.SizeEncoder;
+import alluxio.client.file.cache.filter.size.LRUSizeEncoder;
 
 import com.google.common.hash.Funnel;
 import com.google.common.hash.HashCode;
@@ -32,7 +32,7 @@ import java.util.concurrent.atomic.AtomicLong;
  *
  * @param <T> the type of item
  */
-public class ConcurrentClockCuckooFilterWithSizeGroup<T>
+public class ConcurrentClockCuckooFilterWithLRUSizeGroup<T>
     implements IClockCuckooFilter<T>, Serializable {
   private static final long serialVersionUID = 1L;
 
@@ -42,7 +42,8 @@ public class ConcurrentClockCuckooFilterWithSizeGroup<T>
   private static final int TAGS_PER_BUCKET = 4;
   private static final int DEFAULT_NUM_LOCKS = 4096;
   private static final int MAX_BFS_PATH_LEN = 5;
-  private static final int SIZE_GROUP_BITS = 4;
+  private static final int SIZE_GROUP_BITS = 4; // 64KB per group
+  private static final int SIZE_BUCKETS_BITS = 8; // 8KB per bucket
 
   // aging configurations
   // we do not want to block user operations for too long,
@@ -78,6 +79,7 @@ public class ConcurrentClockCuckooFilterWithSizeGroup<T>
   private final long mWindowSize;
   private final long mStartTime = System.currentTimeMillis();
   private final int mSizeGroupBits;
+  private final int mSizeBucketBits;
   private CuckooTable mTable;
   private CuckooTable mClockTable;
   private CuckooTable mSizeTable;
@@ -97,9 +99,10 @@ public class ConcurrentClockCuckooFilterWithSizeGroup<T>
    * @param funnel the funnel of T's that the constructed cuckoo filter will use
    * @param hasher the hash function the constructed cuckoo filter will use
    */
-  public ConcurrentClockCuckooFilterWithSizeGroup(CuckooTable table, CuckooTable clockTable,
+  public ConcurrentClockCuckooFilterWithLRUSizeGroup(CuckooTable table, CuckooTable clockTable,
       CuckooTable sizeTable, CuckooTable scopeTable, SlidingWindowType slidingWindowType,
-      long windowSize, int sizeGroupBits, Funnel<? super T> funnel, HashFunction hasher) {
+      long windowSize, int sizeGroupBits, int sizeBucketBits, Funnel<? super T> funnel,
+      HashFunction hasher) {
     mTable = table;
     mNumBuckets = table.getNumBuckets();
     mBitsPerTag = table.getBitsPerTag();
@@ -117,17 +120,19 @@ public class ConcurrentClockCuckooFilterWithSizeGroup<T>
     mHasher = hasher;
     mScopeEncoder = new ScopeEncoder(mBitsPerScope);
     mLocks = new SegmentedLock(Math.min(DEFAULT_NUM_LOCKS, mNumBuckets >> 1), mNumBuckets);
-    mSizeGroupBits = sizeGroupBits;
     // init scope statistics
     int maxNumScopes = (1 << mBitsPerScope);
     mScopeToNumber = new AtomicInteger[maxNumScopes];
     mScopeToSize = new AtomicLong[maxNumScopes];
     // init size groups
+    mSizeGroupBits = sizeGroupBits;
+    mSizeBucketBits = sizeBucketBits;
     mScopeToSizeEncoder = new ISizeEncoder[maxNumScopes];
     for (int i = 0; i < maxNumScopes; i++) {
       mScopeToNumber[i] = new AtomicInteger(0);
       mScopeToSize[i] = new AtomicLong(0);
-      mScopeToSizeEncoder[i] = new SizeEncoder(mBitsPerSize, mSizeGroupBits);
+      mScopeToSizeEncoder[i] =
+          new LRUSizeEncoder(mBitsPerSize, sizeGroupBits, mSizeGroupBits + mSizeBucketBits);
     }
     // init aging pointers for each lock
     mSegmentedAgingPointers = new int[mLocks.getNumLocks()];
@@ -153,10 +158,10 @@ public class ConcurrentClockCuckooFilterWithSizeGroup<T>
    * @param <T> the type of item
    * @return a {@code ConcurrentClockCuckooFilter}
    */
-  public static <T> ConcurrentClockCuckooFilterWithSizeGroup<T> create(Funnel<? super T> funnel,
+  public static <T> ConcurrentClockCuckooFilterWithLRUSizeGroup<T> create(Funnel<? super T> funnel,
       long expectedInsertions, int bitsPerClock, int bitsPerSize, int bitsPerScope,
-      SlidingWindowType slidingWindowType, long windowSize, int sizeGroupBits, double fpp,
-      double loadFactor, HashFunction hasher) {
+      SlidingWindowType slidingWindowType, long windowSize, int sizeGroupBits, int sizeBucketBits,
+      double fpp, double loadFactor, HashFunction hasher) {
     // make expectedInsertions a power of 2
     int bitsPerTag = Utils.optimalBitsPerTag(fpp, loadFactor);
     long numBuckets = Utils.optimalBuckets(expectedInsertions, loadFactor, TAGS_PER_BUCKET);
@@ -178,8 +183,8 @@ public class ConcurrentClockCuckooFilterWithSizeGroup<T>
         new BuiltinBitSet((int) (numBuckets * TAGS_PER_BUCKET * bitsPerScope));
     CuckooTable scopeTable =
         new SingleCuckooTable(scopeBits, (int) numBuckets, TAGS_PER_BUCKET, bitsPerScope);
-    return new ConcurrentClockCuckooFilterWithSizeGroup<>(table, clockTable, sizeTable, scopeTable,
-        slidingWindowType, windowSize, sizeGroupBits, funnel, hasher);
+    return new ConcurrentClockCuckooFilterWithLRUSizeGroup<>(table, clockTable, sizeTable,
+        scopeTable, slidingWindowType, windowSize, sizeGroupBits, sizeBucketBits, funnel, hasher);
   }
 
   /**
@@ -198,12 +203,13 @@ public class ConcurrentClockCuckooFilterWithSizeGroup<T>
    * @param <T> the type of item
    * @return a {@code ConcurrentClockCuckooFilter}
    */
-  public static <T> ConcurrentClockCuckooFilterWithSizeGroup<T> create(Funnel<? super T> funnel,
+  public static <T> ConcurrentClockCuckooFilterWithLRUSizeGroup<T> create(Funnel<? super T> funnel,
       long expectedInsertions, int bitsPerClock, int bitsPerSize, int bitsPerScope,
-      SlidingWindowType slidingWindowType, long windowSize, int sizeGroupBits, double fpp,
-      double loadFactor) {
+      SlidingWindowType slidingWindowType, long windowSize, int sizeGroupBits, int sizeBucketBits,
+      double fpp, double loadFactor) {
     return create(funnel, expectedInsertions, bitsPerClock, bitsPerSize, bitsPerScope,
-        slidingWindowType, windowSize, sizeGroupBits, fpp, loadFactor, Hashing.murmur3_128());
+        slidingWindowType, windowSize, sizeGroupBits, sizeBucketBits, fpp, loadFactor,
+        Hashing.murmur3_128());
   }
 
   /**
@@ -221,11 +227,12 @@ public class ConcurrentClockCuckooFilterWithSizeGroup<T>
    * @param <T> the type of item
    * @return a {@code ConcurrentClockCuckooFilter}
    */
-  public static <T> ConcurrentClockCuckooFilterWithSizeGroup<T> create(Funnel<? super T> funnel,
+  public static <T> ConcurrentClockCuckooFilterWithLRUSizeGroup<T> create(Funnel<? super T> funnel,
       long expectedInsertions, int bitsPerClock, int bitsPerSize, int bitsPerScope,
-      SlidingWindowType slidingWindowType, long windowSize, int sizeGroupBits, double fpp) {
+      SlidingWindowType slidingWindowType, long windowSize, int sizeGroupBits, int sizeBucketBits,
+      double fpp) {
     return create(funnel, expectedInsertions, bitsPerClock, bitsPerSize, bitsPerScope,
-        slidingWindowType, windowSize, sizeGroupBits, fpp, DEFAULT_LOAD_FACTOR);
+        slidingWindowType, windowSize, sizeGroupBits, sizeBucketBits, fpp, DEFAULT_LOAD_FACTOR);
   }
 
   /**
@@ -242,11 +249,11 @@ public class ConcurrentClockCuckooFilterWithSizeGroup<T>
    * @param <T> the type of item
    * @return a {@code ConcurrentClockCuckooFilter}
    */
-  public static <T> ConcurrentClockCuckooFilterWithSizeGroup<T> create(Funnel<? super T> funnel,
+  public static <T> ConcurrentClockCuckooFilterWithLRUSizeGroup<T> create(Funnel<? super T> funnel,
       long expectedInsertions, int bitsPerClock, int bitsPerSize, int bitsPerScope,
-      SlidingWindowType slidingWindowType, long windowSize, int sizeGroupBits) {
+      SlidingWindowType slidingWindowType, long windowSize, int sizeGroupBits, int sizeBucketBits) {
     return create(funnel, expectedInsertions, bitsPerClock, bitsPerSize, bitsPerScope,
-        slidingWindowType, windowSize, sizeGroupBits, DEFAULT_FPP);
+        slidingWindowType, windowSize, sizeGroupBits, sizeBucketBits, DEFAULT_FPP);
   }
 
   /**
@@ -261,7 +268,7 @@ public class ConcurrentClockCuckooFilterWithSizeGroup<T>
    * @param <T> the type of item
    * @return a {@code ConcurrentClockCuckooFilter}
    */
-  public static <T> ConcurrentClockCuckooFilterWithSizeGroup<T> create(Funnel<? super T> funnel,
+  public static <T> ConcurrentClockCuckooFilterWithLRUSizeGroup<T> create(Funnel<? super T> funnel,
       long expectedInsertions, int bitsPerClock, int bitsPerSize, int bitsPerScope) {
     assert funnel != null;
     assert expectedInsertions > 0;
@@ -269,7 +276,7 @@ public class ConcurrentClockCuckooFilterWithSizeGroup<T>
     assert bitsPerSize > 0;
     assert bitsPerScope > 0;
     return create(funnel, expectedInsertions, bitsPerClock, bitsPerSize, bitsPerScope,
-        SlidingWindowType.NONE, -1, SIZE_GROUP_BITS, DEFAULT_FPP);
+        SlidingWindowType.NONE, -1, SIZE_GROUP_BITS, SIZE_BUCKETS_BITS);
   }
 
   /**
@@ -292,7 +299,7 @@ public class ConcurrentClockCuckooFilterWithSizeGroup<T>
     int b1 = indexAndTag.mBucket;
     int b2 = altIndex(b1, fp);
     int scope = encodeScope(scopeInfo);
-    // size = encodeSize(size);
+    size = encodeSize(size);
     TagPosition pos = new TagPosition();
     // Generally, we will hold write locks in two places:
     // 1) put/delete;
@@ -395,8 +402,6 @@ public class ConcurrentClockCuckooFilterWithSizeGroup<T>
       // access size
       size = encodeSize(size);
       int scope = mScopeTable.readTag(pos.getBucketIndex(), pos.getTagIndex());
-      int sizeGroup = mSizeTable.readTag(pos.getBucketIndex(), pos.getTagIndex());
-      assert sizeGroup == mScopeToSizeEncoder[scope].encode(size);
       mScopeToSizeEncoder[scope].access(size);
     }
     mLocks.unlockTwoRead(b1, b2);
@@ -419,9 +424,8 @@ public class ConcurrentClockCuckooFilterWithSizeGroup<T>
     if (mTable.deleteTagFromBucket(i1, tag, pos) || mTable.deleteTagFromBucket(i2, tag, pos)) {
       mNumItems.decrementAndGet();
       int scope = mScopeTable.readTag(pos.getBucketIndex(), pos.getTagIndex());
-      int sizeGroup = mSizeTable.readTag(pos.getBucketIndex(), pos.getTagIndex());
-      // sizeGroup = decodeSize(sizeGroup);
-      int size = mScopeToSizeEncoder[scope].dec(sizeGroup);
+      int size = mSizeTable.readTag(pos.getBucketIndex(), pos.getTagIndex());
+      size = decodeSize(size);
       updateScopeStatistics(scope, -1, -size);
       // Clear Clock
       mClockTable.writeTag(pos.getBucketIndex(), pos.getTagIndex(), 0);
@@ -502,11 +506,7 @@ public class ConcurrentClockCuckooFilterWithSizeGroup<T>
    * @return the number of items in this cuckoo filter
    */
   public int getItemNumber() {
-    int totalCount = 0;
-    for (ISizeEncoder sizeEncoder : mScopeToSizeEncoder) {
-      totalCount += sizeEncoder.getTotalCount();
-    }
-    return totalCount;
+    return mNumItems.intValue();
   }
 
   /**
@@ -515,7 +515,7 @@ public class ConcurrentClockCuckooFilterWithSizeGroup<T>
    */
   public int getItemNumber(ScopeInfo scopeInfo) {
     int scope = encodeScope(scopeInfo);
-    return (int) mScopeToSizeEncoder[scope].getTotalCount();
+    return mScopeToNumber[scope].get();
   }
 
   /**
@@ -523,8 +523,8 @@ public class ConcurrentClockCuckooFilterWithSizeGroup<T>
    */
   public int getItemSize() {
     int totalBytes = 0;
-    for (ISizeEncoder sizeEncoder : mScopeToSizeEncoder) {
-      totalBytes += sizeEncoder.getTotalSize();
+    for (int i = 0; i < mScopeToSizeEncoder.length; i++) {
+      totalBytes += mScopeToSizeEncoder[i].getTotalSize();
     }
     return totalBytes;
   }

@@ -23,7 +23,7 @@ public class Bucket {
   }
 
   public int decrement() {
-    int size = (int) Math.round(totalBytes.doubleValue() / count.get());
+    int size = (int) getAverageSize();
     totalBytes.addAndGet(-size);
     count.decrementAndGet();
     return size;

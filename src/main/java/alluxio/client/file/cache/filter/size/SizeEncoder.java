@@ -12,14 +12,16 @@
 package alluxio.client.file.cache.filter.size;
 
 public class SizeEncoder implements ISizeEncoder {
-  private final int maxSizeBits;
-  private final int sizeGroupBits;
-  private final int numBuckets;
-  private final Bucket[] buckets;
+  protected final int maxSizeBits;
+  protected final int sizeGroupBits;
+  protected final int bitsPerBucket;
+  protected final int numBuckets;
+  protected final Bucket[] buckets;
 
   public SizeEncoder(int maxSizeBits, int numBucketsBits) {
     this.maxSizeBits = maxSizeBits;
     this.sizeGroupBits = numBucketsBits;
+    this.bitsPerBucket = maxSizeBits - numBucketsBits;
     this.numBuckets = (1 << numBucketsBits);
     this.buckets = new Bucket[numBuckets];
     for (int i = 0; i < numBuckets; i++) {
@@ -43,8 +45,17 @@ public class SizeEncoder implements ISizeEncoder {
     return totalSize;
   }
 
-  private int getSizeGroup(int size) {
-    return (size >> (maxSizeBits - sizeGroupBits));
+  @Override
+  public long getTotalCount() {
+    long totalCount = 0;
+    for (int i=0; i < numBuckets; i++) {
+      totalCount += buckets[i].getCount();
+    }
+    return totalCount;
+  }
+
+  protected int getSizeGroup(int size) {
+    return (size >> bitsPerBucket);
   }
 
   @Override

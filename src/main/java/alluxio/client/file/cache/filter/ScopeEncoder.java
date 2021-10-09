@@ -51,6 +51,7 @@ public class ScopeEncoder {
           // we may read a null scope info in decode.
           int id = mCount;
           mCount++;
+          assert mCount <= mMaxNumScopes;
           // the following bothersome code is to pass findbugs plugin
           ScopeInfo oldScope = mIdToScope.putIfAbsent(id, scopeInfo);
           if (scopeInfo.equals(oldScope)) {

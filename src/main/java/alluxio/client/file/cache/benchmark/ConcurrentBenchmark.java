@@ -24,8 +24,11 @@ import alluxio.client.file.cache.dataset.generator.RandomEntryGenerator;
 import alluxio.client.file.cache.dataset.generator.SequentialEntryGenerator;
 import alluxio.client.file.cache.dataset.generator.TwitterEntryGenerator;
 import alluxio.client.file.cache.filter.ConcurrentClockCuckooFilter;
+import alluxio.client.file.cache.filter.ConcurrentClockCuckooFilterWithAverageSizeGroup;
+import alluxio.client.file.cache.filter.ConcurrentClockCuckooFilterWithLRUSizeGroup;
 import alluxio.client.file.cache.filter.ConcurrentClockCuckooFilterWithSizeGroup;
 import alluxio.client.file.cache.filter.IClockCuckooFilter;
+import alluxio.client.file.cache.filter.ScopeInfo;
 import alluxio.client.file.cache.filter.SlidingWindowType;
 
 import org.apache.commons.cli.CommandLine;
@@ -53,7 +56,10 @@ public class ConcurrentBenchmark {
           .addOption("clock_bits", true, "The number of bits of clock field.")
           .addOption("opportunistic_aging", true, "Enable opportunistic aging.")
           .addOption("report_file", true, "The file where reported information will be written to.")
-          .addOption("report_interval", true, "The interval of reporting.");
+          .addOption("report_interval", true, "The interval of reporting.")
+          .addOption("size_encoding", true, "The type of size encoding.")
+          .addOption("size_group_bits", true, "The number of size_groups in bits.")
+          .addOption("size_bucket_bits", true, "The number of buckets in bits.");
 
   private static boolean mHelp;
   private static String mBenchmark;
@@ -67,6 +73,9 @@ public class ConcurrentBenchmark {
   private static String mReportFile;
   private static int mReportInterval;
 
+  private static SizeEncodingType mSizeEncodingType;
+  private static int mSizeGroupBits;
+  private static int mSizeBucketBits;
 
   private static Dataset<String> mDataset;
 
@@ -101,6 +110,10 @@ public class ConcurrentBenchmark {
     int defaultReportInterval = Math.max(1, (mWindowSize >> (mClockBits + 2)));
     mReportInterval = Integer
         .parseInt(cmd.getOptionValue("report_interval", Integer.toString(defaultReportInterval)));
+    mSizeEncodingType = Enum.valueOf(
+            SizeEncodingType.class, cmd.getOptionValue("size_encoding", "BULKY"));
+    mSizeGroupBits = Integer.parseInt(cmd.getOptionValue("size_group_bits", "4"));
+    mSizeBucketBits = Integer.parseInt(cmd.getOptionValue("size_bucket_bits", "4"));
     return true;
   }
 
@@ -131,13 +144,8 @@ public class ConcurrentBenchmark {
     long totalSlots = budgetInBits / bitsPerSlot;
     // make sure cuckoo filter size dot not exceed the memory budget
     long expectedInsertions = (long) (Long.highestOneBit(totalSlots) * 0.955);
-    if (mOpportunisticAging) {
-      mClockFilter = ConcurrentClockCuckooFilterWithSizeGroup.create(ShadowCache.PageIdFunnel.FUNNEL,
-          expectedInsertions, mClockBits, BITS_PER_SIZE, BITS_PER_SCOPE,
-          SlidingWindowType.COUNT_BASED, mWindowSize);
-    } else {
-      mClockFilter = ConcurrentClockCuckooFilterWithSizeGroup.create(ShadowCache.PageIdFunnel.FUNNEL,
-          expectedInsertions, mClockBits, BITS_PER_SIZE, BITS_PER_SCOPE);
+    if (!createCuckooFilter(expectedInsertions)) {
+      return false;
     }
     mCcfAgingPeriod = mWindowSize >> mClockBits;
 
@@ -162,6 +170,38 @@ public class ConcurrentBenchmark {
     return true;
   }
 
+  private static boolean createCuckooFilter(long expectedInsertions) {
+    SlidingWindowType slidingWindowType = SlidingWindowType.NONE;
+    if (mOpportunisticAging) {
+      slidingWindowType = SlidingWindowType.COUNT_BASED;
+    }
+    switch (mSizeEncodingType) {
+      case BULKY:
+        mClockFilter = ConcurrentClockCuckooFilter.create(ShadowCache.PageIdFunnel.FUNNEL,
+                expectedInsertions, mClockBits, BITS_PER_SIZE, BITS_PER_SCOPE,
+                slidingWindowType, mWindowSize);
+        break;
+      case GROUP:
+        mClockFilter = ConcurrentClockCuckooFilterWithSizeGroup.create(ShadowCache.PageIdFunnel.FUNNEL,
+                expectedInsertions, mClockBits, BITS_PER_SIZE, BITS_PER_SCOPE,
+                slidingWindowType, mWindowSize, mSizeGroupBits);
+        break;
+      case AVG_GROUP:
+        mClockFilter = ConcurrentClockCuckooFilterWithAverageSizeGroup.create(ShadowCache.PageIdFunnel.FUNNEL,
+                expectedInsertions, mClockBits, BITS_PER_SIZE, BITS_PER_SCOPE,
+                slidingWindowType, mWindowSize, mSizeGroupBits);
+        break;
+      case LRU_GROUP:
+        mClockFilter = ConcurrentClockCuckooFilterWithLRUSizeGroup.create(ShadowCache.PageIdFunnel.FUNNEL,
+                expectedInsertions, mClockBits, BITS_PER_SIZE, BITS_PER_SCOPE,
+                slidingWindowType, mWindowSize, mSizeGroupBits, mSizeBucketBits);
+        break;
+      default:
+        return false;
+    }
+    return true;
+  }
+
   private static void usage() {
     new HelpFormatter().printHelp(String.format(
         "java -cp <JAR>> %s -benchmark <[random, seq, msr, twitter]> -trace <path> -max_entries <entries> "
@@ -172,9 +212,9 @@ public class ConcurrentBenchmark {
 
   private static void printArguments() {
     System.out.printf(
-        "-benchmark %s -trace %s -max_entries %d -memory %d -window_size %d -num_unique_entries %d -clock_bits %d -opportunistic_aging %b\n",
+        "-benchmark %s -trace %s -max_entries %d -memory %d -window_size %d -num_unique_entries %d -clock_bits %d -opportunistic_aging %b -size_encoding %s\n",
         mBenchmark, mTrace, mMaxEntries, mMemoryOverhead, mWindowSize, mNumUniqueEntries,
-        mClockBits, mOpportunisticAging);
+        mClockBits, mOpportunisticAging, mSizeEncodingType.toString());
   }
 
   public static void main(String[] args) {
@@ -271,5 +311,12 @@ public class ConcurrentBenchmark {
         ccfAgingDuration, ccfAgingCount, opsCount * 1000 / (double) ccfFilterDuration,
         opsCount * 1000 / (double) (ccfFilterDuration + ccfAgingDuration), ccfError * 100 / errCnt,
         ccfByteError * 100 / errCnt);
+  }
+
+  enum SizeEncodingType {
+    BULKY,
+    GROUP,
+    AVG_GROUP,
+    LRU_GROUP
   }
 }

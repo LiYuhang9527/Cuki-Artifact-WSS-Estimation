@@ -20,15 +20,17 @@ public class LRUSizeEncoder implements ISizeEncoder {
   private final int numGroups;
   private final int numBuckets;
   private final int numBucketsPerGroup;
+  private final int sizePerGroup;
   private final LRUGroup groups[];
 
-  LRUSizeEncoder(int maxSizeBits, int numGroupBits, int numBucketBits) {
+  public LRUSizeEncoder(int maxSizeBits, int numGroupBits, int numBucketBits) {
     this.maxSizeBits = maxSizeBits;
     this.numGroupBits = numGroupBits;
     this.numGroups = (1 << numGroupBits);
     this.numBucketBits = numBucketBits;
     this.numBuckets = (1 << numBucketBits);
     this.numBucketsPerGroup = (1 << (numBucketBits - numGroupBits));
+    this.sizePerGroup = (1 << (maxSizeBits - numGroupBits));
     this.groups = new LRUGroup[numGroups];
     for (int i = 0; i < numGroups; i++) {
       groups[i] = new LRUGroup(numBucketBits - numGroupBits, maxSizeBits - numGroupBits);
@@ -40,21 +42,30 @@ public class LRUSizeEncoder implements ISizeEncoder {
   }
 
   public int dec(int group) {
-    return groups[getGroup(group)].dec();
+    return groups[group].dec();
   }
 
   @Override
   public void access(int size) {
-    groups[getGroup(size)].access(size);
+    groups[getGroup(size)].access(maskSize(size));
   }
 
   public long getTotalSize() {
     long totalSize = 0;
     for (int i = 0; i < numGroups; i++) {
       totalSize += groups[i].getTotalSize()
-          + groups[i].getTotalCount() * (1 << (maxSizeBits - numGroupBits)) * i;
+          + groups[i].getTotalCount() * sizePerGroup * i;
     }
     return totalSize;
+  }
+
+  @Override
+  public long getTotalCount() {
+    long totalCount = 0;
+    for (int i=0; i < numGroups; i++) {
+      totalCount += groups[i].getTotalCount();
+    }
+    return totalCount;
   }
 
   private int getGroup(int size) {
@@ -62,7 +73,8 @@ public class LRUSizeEncoder implements ISizeEncoder {
   }
 
   private int maskSize(int size) {
-    return (size & ((1 << (maxSizeBits - numGroupBits)) - 1));
+//    return (size & ((1 << (maxSizeBits - numGroupBits)) - 1));
+    return size % sizePerGroup;
   }
 
   @Override
@@ -90,6 +102,7 @@ public class LRUSizeEncoder implements ISizeEncoder {
     }
 
     public void add(int size) {
+      // add the accessed bucket to the tail
       int b = getBucket(size);
       buckets[b].add(size);
       lruCache.remove(Integer.valueOf(b));
@@ -97,16 +110,23 @@ public class LRUSizeEncoder implements ISizeEncoder {
     }
 
     public int dec() {
-      int b = lruCache.getFirst();
-      while (buckets[b].getCount() == 0) {
-        lruCache.remove(Integer.valueOf(b));
-        lruCache.add(b);
-        b = lruCache.getFirst();
+      // dec the lru bucket
+      int b = -1;
+      for (int x : lruCache) {
+        if (buckets[x].getCount() > 0) {
+          b = x;
+          break;
+        }
       }
-      return buckets[b].decrement();
+      if (b >= 0) {
+        return buckets[b].decrement();
+      } else {
+        return 0;
+      }
     }
 
     public void access(int size) {
+      // TODO(iluoeli): optimize
       int b = getBucket(size);
       lruCache.remove(Integer.valueOf(b));
       lruCache.add(b);

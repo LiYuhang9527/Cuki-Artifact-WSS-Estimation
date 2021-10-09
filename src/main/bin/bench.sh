@@ -15,6 +15,9 @@ CLOCK_BITS="2"
 OPPO_AGING="true"
 REPORT_DIR="/datasets/benchmarks/bench"
 REPORT_INTERVAL=64
+SIZE_ENCODING="BULKY"
+SIZE_GROUP_BITS="4"
+SIZE_BUCKET_BITS="4"
 
 to_brief_string() {
   local size=$1
@@ -31,7 +34,7 @@ bench_one() {
   local str_max_entries=$(to_brief_string ${MAX_ENTRIES})
   local str_window_size=$(to_brief_string ${WINDOW_SIZE})
   mkdir -p "${REPORT_DIR}/${BENCHMARK}"
-  local prefix="${REPORT_DIR}/${BENCHMARK}/${BENCHMARK}-${str_max_entries}-${str_window_size}-${MEMORY}mb-${CLOCK_BITS}-${OPPO_AGING}"
+  local prefix="${REPORT_DIR}/${BENCHMARK}/${BENCHMARK}-${str_max_entries}-${str_window_size}-${MEMORY}mb-${CLOCK_BITS}-${OPPO_AGING}-${SIZE_ENCODING}-${SIZE_GROUP_BITS}-${SIZE_BUCKET_BITS}"
   REPORT_FILE="${prefix}.csv"
   LOG_FILE="${prefix}.log"
   echo "${REPORT_FILE}"
@@ -46,6 +49,9 @@ bench_one() {
     -opportunistic_aging ${OPPO_AGING} \
     -report_file ${REPORT_FILE} \
     -report_interval ${REPORT_INTERVAL} \
+    -size_encoding ${SIZE_ENCODING} \
+    -size_group_bits ${SIZE_GROUP_BITS} \
+    -size_bucket_bits ${SIZE_BUCKET_BITS} \
     >> ${LOG_FILE}
 }
 
@@ -53,12 +59,15 @@ BENCHMARK_LIST="msr"
 WINDOW_SIZE_LIST="65536 262144 1048576" # 64k 256k 1m
 CLOCK_BITS_LIST="2 4 8"
 OPPO_AGING_LIST="true false"
+SIZE_ENCODING_LIST="BULKY GROUP AVG_GROUP LRU_GROUP"
 
 for BENCHMARK in ${BENCHMARK_LIST}; do
   for WINDOW_SIZE in ${WINDOW_SIZE_LIST}; do
     for CLOCK_BITS in ${CLOCK_BITS_LIST}; do
       for OPPO_AGING in ${OPPO_AGING_LIST}; do
-        bench_one
+        for SIZE_ENCODING in ${SIZE_ENCODING_LIST}; do
+          bench_one
+        done
       done
     done
   done

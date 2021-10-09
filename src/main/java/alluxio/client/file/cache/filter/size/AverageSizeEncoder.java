@@ -11,16 +11,18 @@
 
 package alluxio.client.file.cache.filter.size;
 
-public interface ISizeEncoder {
-  public void add(int size);
+public class AverageSizeEncoder extends SizeEncoder {
 
-  public int dec(int group);
+  public AverageSizeEncoder(int maxSizeBits, int numBucketsBits) {
+    super(maxSizeBits, numBucketsBits);
+  }
 
-  public long getTotalSize();
-
-  public long getTotalCount();
-
-  public void access(int size);
-
-  public int encode(int size);
+  @Override
+  public void access(int size) {
+    // average the total size whenever an entry is accessed
+    int group = getSizeGroup(size);
+    buckets[group].add(size);
+    buckets[group].decrement();
+  }
 }
+
