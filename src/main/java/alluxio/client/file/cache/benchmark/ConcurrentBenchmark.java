@@ -28,7 +28,6 @@ import alluxio.client.file.cache.filter.ConcurrentClockCuckooFilterWithAverageSi
 import alluxio.client.file.cache.filter.ConcurrentClockCuckooFilterWithLRUSizeGroup;
 import alluxio.client.file.cache.filter.ConcurrentClockCuckooFilterWithSizeGroup;
 import alluxio.client.file.cache.filter.IClockCuckooFilter;
-import alluxio.client.file.cache.filter.ScopeInfo;
 import alluxio.client.file.cache.filter.SlidingWindowType;
 
 import org.apache.commons.cli.CommandLine;
@@ -66,7 +65,7 @@ public class ConcurrentBenchmark {
   private static String mTrace;
   private static long mMaxEntries;
   private static int mNumUniqueEntries;
-  private static int mMemoryOverhead;
+  private static double mMemoryOverhead;
   private static int mWindowSize;
   private static int mClockBits;
   private static boolean mOpportunisticAging;
@@ -102,7 +101,7 @@ public class ConcurrentBenchmark {
     mTrace = cmd.getOptionValue("trace", "");
     mMaxEntries = Long.parseLong(cmd.getOptionValue("max_entries", "1024"));
     mNumUniqueEntries = Integer.parseInt(cmd.getOptionValue("num_unique_entries", "1024"));
-    mMemoryOverhead = Integer.parseInt(cmd.getOptionValue("memory", "1"));
+    mMemoryOverhead = Double.parseDouble(cmd.getOptionValue("memory", "1.0"));
     mWindowSize = Integer.parseInt(cmd.getOptionValue("window_size", "512"));
     mClockBits = Integer.parseInt(cmd.getOptionValue("clock_bits", "2"));
     mOpportunisticAging = Boolean.parseBoolean(cmd.getOptionValue("opportunistic_aging", "true"));
@@ -110,8 +109,8 @@ public class ConcurrentBenchmark {
     int defaultReportInterval = Math.max(1, (mWindowSize >> (mClockBits + 2)));
     mReportInterval = Integer
         .parseInt(cmd.getOptionValue("report_interval", Integer.toString(defaultReportInterval)));
-    mSizeEncodingType = Enum.valueOf(
-            SizeEncodingType.class, cmd.getOptionValue("size_encoding", "BULKY"));
+    mSizeEncodingType =
+        Enum.valueOf(SizeEncodingType.class, cmd.getOptionValue("size_encoding", "BULKY"));
     mSizeGroupBits = Integer.parseInt(cmd.getOptionValue("size_group_bits", "4"));
     mSizeBucketBits = Integer.parseInt(cmd.getOptionValue("size_bucket_bits", "4"));
     return true;
@@ -139,8 +138,8 @@ public class ConcurrentBenchmark {
     mDataset = new GeneralDataset<>(generator, mWindowSize);
 
     // init cuckoo filter
-    long budgetInBits = mMemoryOverhead * Constants.MB * 8;
-    long bitsPerSlot = BITS_PER_TAG + mClockBits + BITS_PER_SIZE + BITS_PER_SCOPE;
+    long budgetInBits = (long) (mMemoryOverhead * Constants.MB * 8);
+    long bitsPerSlot = BITS_PER_TAG + mClockBits + BITS_PER_SIZE;
     long totalSlots = budgetInBits / bitsPerSlot;
     // make sure cuckoo filter size dot not exceed the memory budget
     long expectedInsertions = (long) (Long.highestOneBit(totalSlots) * 0.955);
@@ -177,24 +176,24 @@ public class ConcurrentBenchmark {
     }
     switch (mSizeEncodingType) {
       case BULKY:
-        mClockFilter = ConcurrentClockCuckooFilter.create(ShadowCache.PageIdFunnel.FUNNEL,
-                expectedInsertions, mClockBits, BITS_PER_SIZE, BITS_PER_SCOPE,
-                slidingWindowType, mWindowSize);
+        mClockFilter =
+            ConcurrentClockCuckooFilter.create(ShadowCache.PageIdFunnel.FUNNEL, expectedInsertions,
+                mClockBits, BITS_PER_SIZE, BITS_PER_SCOPE, slidingWindowType, mWindowSize);
         break;
       case GROUP:
-        mClockFilter = ConcurrentClockCuckooFilterWithSizeGroup.create(ShadowCache.PageIdFunnel.FUNNEL,
-                expectedInsertions, mClockBits, BITS_PER_SIZE, BITS_PER_SCOPE,
-                slidingWindowType, mWindowSize, mSizeGroupBits);
+        mClockFilter = ConcurrentClockCuckooFilterWithSizeGroup.create(
+            ShadowCache.PageIdFunnel.FUNNEL, expectedInsertions, mClockBits, BITS_PER_SIZE,
+            BITS_PER_SCOPE, slidingWindowType, mWindowSize, mSizeGroupBits);
         break;
       case AVG_GROUP:
-        mClockFilter = ConcurrentClockCuckooFilterWithAverageSizeGroup.create(ShadowCache.PageIdFunnel.FUNNEL,
-                expectedInsertions, mClockBits, BITS_PER_SIZE, BITS_PER_SCOPE,
-                slidingWindowType, mWindowSize, mSizeGroupBits);
+        mClockFilter = ConcurrentClockCuckooFilterWithAverageSizeGroup.create(
+            ShadowCache.PageIdFunnel.FUNNEL, expectedInsertions, mClockBits, BITS_PER_SIZE,
+            BITS_PER_SCOPE, slidingWindowType, mWindowSize, mSizeGroupBits);
         break;
       case LRU_GROUP:
-        mClockFilter = ConcurrentClockCuckooFilterWithLRUSizeGroup.create(ShadowCache.PageIdFunnel.FUNNEL,
-                expectedInsertions, mClockBits, BITS_PER_SIZE, BITS_PER_SCOPE,
-                slidingWindowType, mWindowSize, mSizeGroupBits, mSizeBucketBits);
+        mClockFilter = ConcurrentClockCuckooFilterWithLRUSizeGroup.create(
+            ShadowCache.PageIdFunnel.FUNNEL, expectedInsertions, mClockBits, BITS_PER_SIZE,
+            BITS_PER_SCOPE, slidingWindowType, mWindowSize, mSizeGroupBits, mSizeBucketBits);
         break;
       default:
         return false;
@@ -212,7 +211,7 @@ public class ConcurrentBenchmark {
 
   private static void printArguments() {
     System.out.printf(
-        "-benchmark %s -trace %s -max_entries %d -memory %d -window_size %d -num_unique_entries %d -clock_bits %d -opportunistic_aging %b -size_encoding %s\n",
+        "-benchmark %s -trace %s -max_entries %d -memory %f -window_size %d -num_unique_entries %d -clock_bits %d -opportunistic_aging %b -size_encoding %s\n",
         mBenchmark, mTrace, mMaxEntries, mMemoryOverhead, mWindowSize, mNumUniqueEntries,
         mClockBits, mOpportunisticAging, mSizeEncodingType.toString());
   }
@@ -314,9 +313,6 @@ public class ConcurrentBenchmark {
   }
 
   enum SizeEncodingType {
-    BULKY,
-    GROUP,
-    AVG_GROUP,
-    LRU_GROUP
+    BULKY, GROUP, AVG_GROUP, LRU_GROUP
   }
 }
