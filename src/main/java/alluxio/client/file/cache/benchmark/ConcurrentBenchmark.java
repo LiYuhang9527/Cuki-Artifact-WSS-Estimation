@@ -23,7 +23,13 @@ import alluxio.client.file.cache.dataset.generator.MSREntryGenerator;
 import alluxio.client.file.cache.dataset.generator.RandomEntryGenerator;
 import alluxio.client.file.cache.dataset.generator.SequentialEntryGenerator;
 import alluxio.client.file.cache.dataset.generator.TwitterEntryGenerator;
-import alluxio.client.file.cache.filter.*;
+import alluxio.client.file.cache.cuckoofilter.ConcurrentClockCuckooFilter;
+import alluxio.client.file.cache.cuckoofilter.ConcurrentClockCuckooFilterWithAverageSizeGroup;
+import alluxio.client.file.cache.cuckoofilter.ConcurrentClockCuckooFilterWithLRUSizeGroup;
+import alluxio.client.file.cache.cuckoofilter.ConcurrentClockCuckooFilterWithSizeGroup;
+import alluxio.client.file.cache.cuckoofilter.ClockCuckooFilter;
+import alluxio.client.file.cache.cuckoofilter.SlidingWindowType;
+import alluxio.client.file.cache.filter.BitMapWithClockSketch;
 
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.CommandLineParser;
@@ -73,8 +79,8 @@ public class ConcurrentBenchmark {
 
   private static Dataset<String> mDataset;
 
-  private static IClockCuckooFilter<PageId> mClockFilter;
   private static BitMapWithClockSketch<PageId> mBitmapWithClock;
+  private static ClockCuckooFilter<PageId> mClockFilter;
   private static int mCcfAgingPeriod;
 
   private static ShadowCache mCacheManager = new ShadowCache();

@@ -12,7 +12,7 @@
 package alluxio.client.file.cache.dataset.generator;
 
 import alluxio.client.file.cache.dataset.DatasetEntry;
-import alluxio.client.file.cache.filter.ScopeInfo;
+import alluxio.client.quota.CacheScope;
 
 import java.util.Random;
 import java.util.concurrent.atomic.AtomicLong;
@@ -60,7 +60,7 @@ public class RandomIntegerEntryGenerator implements EntryGenerator<Integer> {
   @Override
   public DatasetEntry<Integer> next() {
     int item = lowerBound + random.nextInt(upperBound - lowerBound);
-    ScopeInfo scope = new ScopeInfo("table" + (item % numScopes));
+    CacheScope scope = CacheScope.create("schema1.table" + (item % numScopes));
     int size = lowerBoundSize + (item * 31213) % (upperBoundSize - lowerBoundSize);
     if (size < 0) {
       size = -size;

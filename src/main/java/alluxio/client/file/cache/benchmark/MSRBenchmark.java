@@ -19,7 +19,7 @@ import alluxio.client.file.cache.dataset.Dataset;
 import alluxio.client.file.cache.dataset.DatasetEntry;
 import alluxio.client.file.cache.dataset.GeneralDataset;
 import alluxio.client.file.cache.dataset.generator.MSREntryGenerator;
-import alluxio.client.file.cache.filter.ScopedClockCuckooFilter;
+import alluxio.client.file.cache.cuckoofilter.ScopedClockCuckooFilter;
 
 public class MSRBenchmark {
   private static final int NUM_UNIQUE_ENTRY = 10 * Constants.MB;

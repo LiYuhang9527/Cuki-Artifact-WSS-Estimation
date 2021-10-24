@@ -11,24 +11,24 @@
 
 package alluxio.client.file.cache.dataset;
 
-import alluxio.client.file.cache.filter.ScopeInfo;
+import alluxio.client.quota.CacheScope;
 
 import java.util.Objects;
 
 public class DatasetEntry<T> {
   private T item;
   private int size;
-  private ScopeInfo scopeInfo;
+  private CacheScope scopeInfo;
   private long timestamp;
 
-  public DatasetEntry(T item, int size, ScopeInfo scopeInfo, long timestamp) {
+  public DatasetEntry(T item, int size, CacheScope scopeInfo, long timestamp) {
     this.item = item;
     this.size = size;
     this.scopeInfo = scopeInfo;
     this.timestamp = timestamp;
   }
 
-  public DatasetEntry(T item, int size, ScopeInfo scopeInfo) {
+  public DatasetEntry(T item, int size, CacheScope scopeInfo) {
     this.item = item;
     this.size = size;
     this.scopeInfo = scopeInfo;
@@ -51,11 +51,11 @@ public class DatasetEntry<T> {
     this.size = size;
   }
 
-  public ScopeInfo getScopeInfo() {
+  public CacheScope getScopeInfo() {
     return scopeInfo;
   }
 
-  public void setScopeInfo(ScopeInfo scopeInfo) {
+  public void setScopeInfo(CacheScope scopeInfo) {
     this.scopeInfo = scopeInfo;
   }
 

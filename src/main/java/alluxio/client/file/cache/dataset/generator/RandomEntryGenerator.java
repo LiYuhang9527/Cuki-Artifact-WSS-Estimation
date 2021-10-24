@@ -12,10 +12,6 @@
 package alluxio.client.file.cache.dataset.generator;
 
 import alluxio.client.file.cache.dataset.DatasetEntry;
-import alluxio.client.file.cache.filter.ScopeInfo;
-
-import java.util.Random;
-import java.util.concurrent.atomic.AtomicLong;
 
 public class RandomEntryGenerator implements EntryGenerator<String> {
 

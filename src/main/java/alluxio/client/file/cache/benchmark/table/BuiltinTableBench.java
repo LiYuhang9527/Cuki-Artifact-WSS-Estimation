@@ -12,9 +12,9 @@
 package alluxio.client.file.cache.benchmark.table;
 
 import alluxio.Constants;
-import alluxio.client.file.cache.filter.BuiltinBitSet;
-import alluxio.client.file.cache.filter.CuckooTable;
-import alluxio.client.file.cache.filter.SingleCuckooTable;
+import alluxio.client.file.cache.cuckoofilter.BuiltinBitSet;
+import alluxio.client.file.cache.cuckoofilter.CuckooTable;
+import alluxio.client.file.cache.cuckoofilter.SingleCuckooTable;
 
 public class BuiltinTableBench {
   private static final int MAX_BIT_SIZE = 125 * Constants.MB;

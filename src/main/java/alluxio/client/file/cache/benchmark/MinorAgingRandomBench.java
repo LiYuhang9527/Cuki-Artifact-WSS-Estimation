@@ -11,13 +11,16 @@
 
 package alluxio.client.file.cache.benchmark;
 
-import alluxio.client.file.cache.CacheContext;
 import alluxio.Constants;
+import alluxio.client.file.cache.CacheContext;
 import alluxio.client.file.cache.PageId;
 import alluxio.client.file.cache.ShadowCache;
-import alluxio.client.file.cache.dataset.*;
-import alluxio.client.file.cache.filter.ScopeInfo;
-import alluxio.client.file.cache.filter.ScopedClockCuckooFilter;
+import alluxio.client.file.cache.cuckoofilter.ScopedClockCuckooFilter;
+import alluxio.client.file.cache.dataset.Dataset;
+import alluxio.client.file.cache.dataset.DatasetEntry;
+import alluxio.client.file.cache.dataset.RandomIntegerDataset;
+import alluxio.client.quota.CacheScope;
+
 import com.google.common.hash.Funnels;
 
 public class MinorAgingRandomBench {
@@ -30,7 +33,7 @@ public class MinorAgingRandomBench {
   private static final int BITS_PER_SCOPE = 8;
   private static final int MINOR_AGING_NUMBER = (1 << 8);
 
-  private static final ScopeInfo DEFAULT_SCOPE = new ScopeInfo("table1");
+  private static final CacheScope DEFAULT_SCOPE = CacheScope.create("schema1.table1");
 
   public static void main(String[] args) {
     Dataset<Integer> dataset =

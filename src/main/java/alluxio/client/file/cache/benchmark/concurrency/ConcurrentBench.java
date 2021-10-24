@@ -15,7 +15,7 @@ import alluxio.Constants;
 import alluxio.client.file.cache.dataset.Dataset;
 import alluxio.client.file.cache.dataset.GeneralDataset;
 import alluxio.client.file.cache.dataset.generator.RandomIntegerEntryGenerator;
-import alluxio.client.file.cache.filter.ScopedClockCuckooFilter;
+import alluxio.client.file.cache.cuckoofilter.ScopedClockCuckooFilter;
 import com.google.common.hash.Funnels;
 
 import java.util.ArrayList;

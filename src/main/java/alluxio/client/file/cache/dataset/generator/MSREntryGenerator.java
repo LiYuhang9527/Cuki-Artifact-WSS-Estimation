@@ -13,7 +13,7 @@ package alluxio.client.file.cache.dataset.generator;
 
 import alluxio.client.file.cache.dataset.DatasetEntry;
 import alluxio.client.file.cache.dataset.DatasetUtils;
-import alluxio.client.file.cache.filter.ScopeInfo;
+import alluxio.client.quota.CacheScope;
 
 import java.io.BufferedReader;
 import java.io.FileReader;
@@ -48,13 +48,13 @@ public class MSREntryGenerator implements EntryGenerator<String> {
     // return null;
     // }
     long timestamp = DatasetUtils.WindowsFileTimeToUnixSeconds(Long.parseLong(tokens[0]));
-    String scope = tokens[1] + "-" + tokens[2]; // Scope format `Hostname-DiskNumber`
+    String scope = tokens[1] + "." + tokens[2]; // Scope format `Hostname.DiskNumber`
     String offset = tokens[4];
     int size = Integer.parseInt(tokens[5]);
     // the size of each item should be not more than 2^20 byte
     size = Math.min((1 << 20) - 1, size);
     // ignore ResponseTime
-    return new DatasetEntry<>(offset, size, new ScopeInfo(scope), timestamp);
+    return new DatasetEntry<>(offset, size, CacheScope.create(scope), timestamp);
   }
 
   @Override

@@ -20,7 +20,7 @@ import alluxio.client.file.cache.dataset.DatasetEntry;
 import alluxio.client.file.cache.dataset.GeneralDataset;
 import alluxio.client.file.cache.dataset.generator.EntryGenerator;
 import alluxio.client.file.cache.dataset.generator.TwitterEntryGenerator;
-import alluxio.client.file.cache.filter.ScopedClockCuckooFilter;
+import alluxio.client.file.cache.cuckoofilter.ScopedClockCuckooFilter;
 
 public class TwitterBenchmark {
   private static final int NUM_UNIQUE_ENTRY = 10 * Constants.MB;

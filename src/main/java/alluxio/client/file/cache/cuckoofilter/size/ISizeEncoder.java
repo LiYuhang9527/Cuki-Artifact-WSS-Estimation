@@ -9,20 +9,18 @@
  * See the NOTICE file distributed with this work for information regarding copyright ownership.
  */
 
-package alluxio.client.file.cache.dataset;
+package alluxio.client.file.cache.cuckoofilter.size;
 
-import alluxio.client.quota.CacheScope;
+public interface ISizeEncoder {
+  public void add(int size);
 
-public interface Dataset<T> {
-  public DatasetEntry<T> next();
+  public int dec(int group);
 
-  public boolean hasNext();
+  public long getTotalSize();
 
-  public int getRealEntryNumber();
+  public long getTotalCount();
 
-  public int getRealEntryNumber(CacheScope scope);
+  public void access(int size);
 
-  public int getRealEntrySize();
-
-  public int getRealEntrySize(CacheScope scope);
+  public int encode(int size);
 }

@@ -12,7 +12,7 @@
 package alluxio.client.file.cache.dataset;
 
 import alluxio.Constants;
-import alluxio.client.file.cache.filter.ScopeInfo;
+import alluxio.client.quota.CacheScope;
 
 import java.util.HashMap;
 import java.util.LinkedList;
@@ -22,7 +22,7 @@ import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 
 public class SequencialIntegerDataset implements Dataset<Integer> {
-  private static final ScopeInfo DEFAULT_SCOPE = new ScopeInfo("db1.table1");
+  private static final CacheScope DEFAULT_SCOPE = CacheScope.create("db1.table1");
   private static final int BYTES_PER_ITEM = 1;
 
   private final long numEntry;
@@ -36,8 +36,8 @@ public class SequencialIntegerDataset implements Dataset<Integer> {
   // private final ConcurrentHashMap<Integer, Integer> map;
   private final Queue<DatasetEntry<Integer>> queue;
   private final HashMap<DatasetEntry<Integer>, Integer> map;
-  private final HashMap<ScopeInfo, Integer> scopedNumber;
-  private final HashMap<ScopeInfo, Integer> scopedSize;
+  private final HashMap<CacheScope, Integer> scopedNumber;
+  private final HashMap<CacheScope, Integer> scopedSize;
   private int realNumber;
   private int realSize;
 
@@ -63,7 +63,7 @@ public class SequencialIntegerDataset implements Dataset<Integer> {
     int r = (lowerBound + count.intValue()) % (upperBound - lowerBound + 1);
     count.incrementAndGet();
     lock.lock();
-    ScopeInfo scope = new ScopeInfo("table" + (r % 64));
+    CacheScope scope = CacheScope.create("schema1.table" + (r % 64));
     int size = (r * 31213) % Constants.KB;
     if (size < 0) {
       size = -size;
@@ -113,7 +113,7 @@ public class SequencialIntegerDataset implements Dataset<Integer> {
   }
 
   @Override
-  public int getRealEntryNumber(ScopeInfo scope) {
+  public int getRealEntryNumber(CacheScope scope) {
     return scopedNumber.getOrDefault(scope, 0);
   }
 
@@ -123,7 +123,7 @@ public class SequencialIntegerDataset implements Dataset<Integer> {
   }
 
   @Override
-  public int getRealEntrySize(ScopeInfo scope) {
+  public int getRealEntrySize(CacheScope scope) {
     return scopedSize.getOrDefault(scope, 0);
   }
 }

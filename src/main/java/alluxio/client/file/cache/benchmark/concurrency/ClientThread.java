@@ -13,7 +13,7 @@ package alluxio.client.file.cache.benchmark.concurrency;
 
 import alluxio.client.file.cache.dataset.Dataset;
 import alluxio.client.file.cache.dataset.DatasetEntry;
-import alluxio.client.file.cache.filter.ScopedClockCuckooFilter;
+import alluxio.client.file.cache.cuckoofilter.ScopedClockCuckooFilter;
 
 public class ClientThread<T> extends Thread {
   private final int threadId;

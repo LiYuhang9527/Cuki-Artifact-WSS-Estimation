@@ -9,20 +9,21 @@
  * See the NOTICE file distributed with this work for information regarding copyright ownership.
  */
 
-package alluxio.client.file.cache.dataset;
+package alluxio.client.file.cache.cuckoofilter;
 
-import alluxio.client.quota.CacheScope;
+/**
+ * This class stores the bucket index and tag of an item.
+ */
+final class IndexAndTag {
+  public final int mBucket;
+  public final int mTag;
 
-public interface Dataset<T> {
-  public DatasetEntry<T> next();
-
-  public boolean hasNext();
-
-  public int getRealEntryNumber();
-
-  public int getRealEntryNumber(CacheScope scope);
-
-  public int getRealEntrySize();
-
-  public int getRealEntrySize(CacheScope scope);
+  /**
+   * @param bucketIndex the bucket index
+   * @param tag the tag value
+   */
+  IndexAndTag(int bucketIndex, int tag) {
+    mBucket = bucketIndex;
+    mTag = tag;
+  }
 }

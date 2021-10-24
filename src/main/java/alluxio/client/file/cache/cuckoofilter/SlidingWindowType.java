@@ -9,20 +9,17 @@
  * See the NOTICE file distributed with this work for information regarding copyright ownership.
  */
 
-package alluxio.client.file.cache.dataset;
+package alluxio.client.file.cache.cuckoofilter;
 
-import alluxio.client.quota.CacheScope;
+/**
+ * This class represents the type of sliding window.
+ */
+public enum SlidingWindowType {
+  COUNT_BASED(0), TIME_BASED(1), NONE(2);
 
-public interface Dataset<T> {
-  public DatasetEntry<T> next();
+  public final int mType;
 
-  public boolean hasNext();
-
-  public int getRealEntryNumber();
-
-  public int getRealEntryNumber(CacheScope scope);
-
-  public int getRealEntrySize();
-
-  public int getRealEntrySize(CacheScope scope);
+  SlidingWindowType(int type) {
+    mType = type;
+  }
 }

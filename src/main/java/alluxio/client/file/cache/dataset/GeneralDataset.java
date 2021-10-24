@@ -12,7 +12,7 @@
 package alluxio.client.file.cache.dataset;
 
 import alluxio.client.file.cache.dataset.generator.EntryGenerator;
-import alluxio.client.file.cache.filter.ScopeInfo;
+import alluxio.client.quota.CacheScope;
 
 import java.util.HashMap;
 import java.util.LinkedList;
@@ -34,8 +34,8 @@ public class GeneralDataset<T> implements Dataset<T> {
   private final Queue<DatasetEntry<T>> queue;
   private final HashMap<T, Integer> itemToCount;
   private final HashMap<T, Integer> itemToSize;
-  private final HashMap<ScopeInfo, Integer> scopeToNumber;
-  private final HashMap<ScopeInfo, Integer> scopeToSize;
+  private final HashMap<CacheScope, Integer> scopeToNumber;
+  private final HashMap<CacheScope, Integer> scopeToSize;
   private int realNumber;
   private int realSize;
 
@@ -107,7 +107,7 @@ public class GeneralDataset<T> implements Dataset<T> {
   }
 
   @Override
-  public int getRealEntryNumber(ScopeInfo scope) {
+  public int getRealEntryNumber(CacheScope scope) {
     return scopeToNumber.getOrDefault(scope, 0);
   }
 
@@ -117,7 +117,7 @@ public class GeneralDataset<T> implements Dataset<T> {
   }
 
   @Override
-  public int getRealEntrySize(ScopeInfo scope) {
+  public int getRealEntrySize(CacheScope scope) {
     return scopeToSize.getOrDefault(scope, 0);
   }
 }

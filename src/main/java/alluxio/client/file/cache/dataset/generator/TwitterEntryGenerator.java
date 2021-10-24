@@ -12,7 +12,7 @@
 package alluxio.client.file.cache.dataset.generator;
 
 import alluxio.client.file.cache.dataset.DatasetEntry;
-import alluxio.client.file.cache.filter.ScopeInfo;
+import alluxio.client.quota.CacheScope;
 
 import java.io.BufferedReader;
 import java.io.FileReader;
@@ -52,13 +52,14 @@ public class TwitterEntryGenerator implements EntryGenerator<String> {
     long timestamp = Long.parseLong(tokens[0]);
     String namespaceAndKey = tokens[1];
     int pi = namespaceAndKey.lastIndexOf("-");
-    String scope = namespaceAndKey.substring(0, pi); // Scope format `Namespace1-Namespace2-...`
+    String scope = namespaceAndKey.substring(0, pi); // Scope format `Namespace1.Namespace2-...`
     String key = namespaceAndKey.substring(pi + 1);
     int size = Integer.parseInt(tokens[2]) + Integer.parseInt(tokens[3]);
     // the size of each item should be not more than 2^20 byte
     size = Math.min((1 << 20) - 1, size);
     // ignore ResponseTime
-    return new DatasetEntry<>(key, size, new ScopeInfo(scope), timestamp);
+    // TODO(iluoeli): parse real scope
+    return new DatasetEntry<>(key, size, CacheScope.create("schema1.scope1"), timestamp);
   }
 
   @Override

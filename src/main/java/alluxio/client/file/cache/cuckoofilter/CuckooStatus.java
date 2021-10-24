@@ -9,20 +9,21 @@
  * See the NOTICE file distributed with this work for information regarding copyright ownership.
  */
 
-package alluxio.client.file.cache.dataset;
+package alluxio.client.file.cache.cuckoofilter;
 
-import alluxio.client.quota.CacheScope;
+/**
+ * This class represents the status of tag position.
+ */
+enum CuckooStatus {
+  OK(0), FAILURE(1), FAILURE_KEY_NOT_FOUND(2), FAILURE_KEY_DUPLICATED(3), FAILURE_TABLE_FULL(
+      4), UNDEFINED(5);
 
-public interface Dataset<T> {
-  public DatasetEntry<T> next();
+  public int mCode;
 
-  public boolean hasNext();
-
-  public int getRealEntryNumber();
-
-  public int getRealEntryNumber(CacheScope scope);
-
-  public int getRealEntrySize();
-
-  public int getRealEntrySize(CacheScope scope);
+  /**
+   * Create a cuckoo status.
+   */
+  CuckooStatus(int code) {
+    mCode = code;
+  }
 }

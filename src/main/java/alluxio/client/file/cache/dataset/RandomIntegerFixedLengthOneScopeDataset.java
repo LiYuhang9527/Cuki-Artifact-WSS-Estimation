@@ -11,7 +11,7 @@
 
 package alluxio.client.file.cache.dataset;
 
-import alluxio.client.file.cache.filter.ScopeInfo;
+import alluxio.client.quota.CacheScope;
 
 import java.util.HashMap;
 import java.util.LinkedList;
@@ -23,7 +23,7 @@ import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 
 public class RandomIntegerFixedLengthOneScopeDataset implements Dataset<Integer> {
-  private static final ScopeInfo DEFAULT_SCOPE = new ScopeInfo("db1.table1");
+  private static final CacheScope DEFAULT_SCOPE = CacheScope.create("db1.table1");
   private static final int BYTES_PER_ITEM = 1;
 
   private final long numEntry;
@@ -108,7 +108,7 @@ public class RandomIntegerFixedLengthOneScopeDataset implements Dataset<Integer>
   }
 
   @Override
-  public int getRealEntryNumber(ScopeInfo scope) {
+  public int getRealEntryNumber(CacheScope scope) {
     assert DEFAULT_SCOPE.equals(scope);
     return getRealEntryNumber();
   }
@@ -119,7 +119,7 @@ public class RandomIntegerFixedLengthOneScopeDataset implements Dataset<Integer>
   }
 
   @Override
-  public int getRealEntrySize(ScopeInfo scope) {
+  public int getRealEntrySize(CacheScope scope) {
     assert DEFAULT_SCOPE.equals(scope);
     return getRealEntrySize();
   }
