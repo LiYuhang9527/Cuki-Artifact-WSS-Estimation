@@ -191,6 +191,23 @@ public class SegmentedLock {
   }
 
   /**
+   * Releases the write locks of two buckets if they are held.
+   *
+   * @param b1 the first bucket to be unlocked
+   * @param b2 the second bucket to be unlocked
+   * @param b3 the third bucket to be unlocked
+   */
+  public void unlockThreeWrite(int b1, int b2, int b3) {
+    int i1 = getSegmentIndex(b1);
+    int i2 = getSegmentIndex(b2);
+    int i3 = getSegmentIndex(b3);
+    // Question: is unlock order important ?
+    mLocks[i1].tryUnlockWrite();
+    mLocks[i2].tryUnlockWrite();
+    mLocks[i3].tryUnlockWrite();
+  }
+
+  /**
    * Exclusively acquires the lock of ith segment, blocking if necessary until available.
    *
    * @param i the segment to be locked

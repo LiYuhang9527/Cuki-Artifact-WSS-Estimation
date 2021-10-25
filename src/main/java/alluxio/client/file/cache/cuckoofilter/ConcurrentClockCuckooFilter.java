@@ -60,6 +60,7 @@ public class ConcurrentClockCuckooFilter<T> implements ClockCuckooFilter<T>, Ser
   private final int mBitsPerSize;
   private final int mBitsPerScope;
   private final int mMaxSize;
+  private final int mMaxAge;
   private final int mSizeMask;
   private final Funnel<? super T> mFunnel;
   private final HashFunction mHasher;
@@ -101,6 +102,7 @@ public class ConcurrentClockCuckooFilter<T> implements ClockCuckooFilter<T>, Ser
     mScopeTable = scopeTable;
     mBitsPerScope = scopeTable.getBitsPerTag();
     mMaxSize = (1 << mBitsPerSize);
+    mMaxAge = (1 << mBitsPerClock) - 1;
     mSizeMask = mMaxSize - 1;
     mSlidingWindowType = slidingWindowType;
     mWindowSize = windowSize;
@@ -797,15 +799,15 @@ public class ConcurrentClockCuckooFilter<T> implements ClockCuckooFilter<T>, Ser
       int startingSlot = x.mPathcode % TAGS_PER_BUCKET;
       for (int i = 0; i < TAGS_PER_BUCKET; i++) {
         int slot = (startingSlot + i) % TAGS_PER_BUCKET;
-        int tag = mTable.readTag(b1, slot);
+        int tag = mTable.readTag(x.mBucket, slot);
         if (tag == 0) {
           x.mPathcode = x.mPathcode * TAGS_PER_BUCKET + slot;
           mLocks.unlockOneWrite(x.mBucket);
           return x;
         }
         if (x.mDepth < maxPathLen - 1) {
-          queue.offer(
-              new BFSEntry(altIndex(b1, tag), x.mPathcode * TAGS_PER_BUCKET + slot, x.mDepth + 1));
+          queue.offer(new BFSEntry(altIndex(x.mBucket, tag), x.mPathcode * TAGS_PER_BUCKET + slot,
+              x.mDepth + 1));
         }
       }
       mLocks.unlockOneWrite(x.mBucket);
@@ -849,10 +851,28 @@ public class ConcurrentClockCuckooFilter<T> implements ClockCuckooFilter<T>, Ser
       // if `to` is nonempty, or `from` is not occupied by original tag,
       // in both cases, abort this insertion.
       if (mTable.readTag(to.mBucket, to.mSlot) != 0 || fromTag != from.mFingerprint) {
+        if (depth == 1) {
+          mLocks.unlockThreeWrite(b1, b2, to.mBucket);
+        } else {
+          mLocks.unlockTwoWrite(from.mBucket, to.mBucket);
+        }
         return false;
       }
       mTable.writeTag(to.mBucket, to.mSlot, fromTag);
-      mClockTable.writeTag(to.mBucket, to.mSlot, mClockTable.readTag(from.mBucket, from.mSlot));
+      // tune clock field
+      int clock = mClockTable.readTag(from.mBucket, from.mSlot);
+      int fromSegIndex = mLocks.getSegmentIndex(from.mBucket);
+      int toSegIndex = mLocks.getSegmentIndex(to.mBucket);
+      int fromIndex = from.mBucket % mLocks.getNumBucketsPerSegment();
+      int toIndex = to.mBucket % mLocks.getNumBucketsPerSegment();
+      if (mSegmentedAgingPointers[fromSegIndex] > fromIndex
+          && mSegmentedAgingPointers[toSegIndex] <= toIndex) {
+        clock = Math.min(mMaxAge, clock + 1);
+      } else if (mSegmentedAgingPointers[fromSegIndex] <= fromIndex
+          && mSegmentedAgingPointers[toSegIndex] > toIndex) {
+        clock = Math.max(0, clock - 1);
+      }
+      mClockTable.writeTag(to.mBucket, to.mSlot, clock);
       mScopeTable.writeTag(to.mBucket, to.mSlot, mScopeTable.readTag(from.mBucket, from.mSlot));
       mSizeTable.writeTag(to.mBucket, to.mSlot, mSizeTable.readTag(from.mBucket, from.mSlot));
       mTable.writeTag(from.mBucket, from.mSlot, 0);
