@@ -23,12 +23,7 @@ import alluxio.client.file.cache.dataset.generator.MSREntryGenerator;
 import alluxio.client.file.cache.dataset.generator.RandomEntryGenerator;
 import alluxio.client.file.cache.dataset.generator.SequentialEntryGenerator;
 import alluxio.client.file.cache.dataset.generator.TwitterEntryGenerator;
-import alluxio.client.file.cache.filter.ConcurrentClockCuckooFilter;
-import alluxio.client.file.cache.filter.ConcurrentClockCuckooFilterWithAverageSizeGroup;
-import alluxio.client.file.cache.filter.ConcurrentClockCuckooFilterWithLRUSizeGroup;
-import alluxio.client.file.cache.filter.ConcurrentClockCuckooFilterWithSizeGroup;
-import alluxio.client.file.cache.filter.IClockCuckooFilter;
-import alluxio.client.file.cache.filter.SlidingWindowType;
+import alluxio.client.file.cache.filter.*;
 
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.CommandLineParser;
@@ -79,6 +74,7 @@ public class ConcurrentBenchmark {
   private static Dataset<String> mDataset;
 
   private static IClockCuckooFilter<PageId> mClockFilter;
+  private static BitMapWithClockSketch<PageId> mBitmapWithClock;
   private static int mCcfAgingPeriod;
 
   private static ShadowCache mCacheManager = new ShadowCache();
@@ -97,8 +93,8 @@ public class ConcurrentBenchmark {
       return false;
     }
     mHelp = cmd.hasOption("help");
-    mBenchmark = cmd.getOptionValue("benchmark", "Random");
-    mTrace = cmd.getOptionValue("trace", "");
+    mBenchmark = cmd.getOptionValue("benchmark", "random");
+    mTrace = cmd.getOptionValue("trace", "twitter");
     mMaxEntries = Long.parseLong(cmd.getOptionValue("max_entries", "1024"));
     mNumUniqueEntries = Integer.parseInt(cmd.getOptionValue("num_unique_entries", "1024"));
     mMemoryOverhead = Double.parseDouble(cmd.getOptionValue("memory", "1.0"));
@@ -146,6 +142,7 @@ public class ConcurrentBenchmark {
     if (!createCuckooFilter(expectedInsertions)) {
       return false;
     }
+    createBitmapWithClock();
     mCcfAgingPeriod = mWindowSize >> mClockBits;
 
     // init bloom filter
@@ -171,6 +168,7 @@ public class ConcurrentBenchmark {
 
   private static boolean createCuckooFilter(long expectedInsertions) {
     SlidingWindowType slidingWindowType = SlidingWindowType.NONE;
+
     if (mOpportunisticAging) {
       slidingWindowType = SlidingWindowType.COUNT_BASED;
     }
@@ -201,6 +199,17 @@ public class ConcurrentBenchmark {
     return true;
   }
 
+  private static boolean createBitmapWithClock(){
+    long budgetInBits = (long)mMemoryOverhead * Constants.MB * 8;
+    int bitsPerSlot =  mClockBits + BITS_PER_SIZE;
+    long totalSlots = budgetInBits / bitsPerSlot;
+    int clockWidth = (int)totalSlots;
+    if(clockWidth<0){
+      return false;
+    }
+    mBitmapWithClock = new BitMapWithClockSketch<PageId>(mWindowSize, 1, mClockBits, clockWidth, BITS_PER_SIZE, ShadowCache.PageIdFunnel.FUNNEL);
+    return true;
+  }
   private static void usage() {
     new HelpFormatter().printHelp(String.format(
         "java -cp <JAR>> %s -benchmark <[random, seq, msr, twitter]> -trace <path> -max_entries <entries> "
@@ -236,14 +245,14 @@ public class ConcurrentBenchmark {
 
     long opsCount = 0;
     long totalDuration = 0;
-    long ccfAgingDuration = 0, mbfAgingDuration = 0;
-    long ccfFilterDuration = 0, mbfFilterDuration = 0;
-    long ccfAgingCount = 0, mbfAgingCount = 0;
-    double ccfError = .0, mbfError = .0;
-    double ccfByteError = .0, mbfByteError = .0;
+    long ccfAgingDuration = 0, mbfAgingDuration = 0, bmcAgingDuration = 0;
+    long ccfFilterDuration = 0, mbfFilterDuration = 0, bmcFilterDuration = 0;
+    long ccfAgingCount = 0, mbfAgingCount = 0, bmcAgingCount = 0;
+    double ccfError = .0, mbfError = .0 ,bmcError = .0;
+    double ccfByteError = .0, mbfByteError = .0, bmcByteError = .0;
     long errCnt = 0;
     long stackTick = System.currentTimeMillis();
-    mStream.println("#operation\tReal\tReal(bytes)\tMBF\tMBF(bytes)\tCCF\tCCF(bytes)");
+    mStream.println("#operation\tReal\tReal(bytes)\tMBF\tMBF(bytes)\tCCF\tCCF(bytes)\tBMC\tBMC(bytes)");
     while (mDataset.hasNext() && opsCount < mMaxEntries) {
       opsCount++;
       DatasetEntry<String> entry = mDataset.next();
@@ -260,6 +269,15 @@ public class ConcurrentBenchmark {
       long startBFTick = System.currentTimeMillis();
       mCacheManager.put(item, page, mContext);
       mbfFilterDuration += System.currentTimeMillis() - startBFTick;
+
+      long bmcStart = System.currentTimeMillis();
+      mBitmapWithClock.put(item,entry.getSize());
+      bmcFilterDuration += System.currentTimeMillis() - bmcStart;
+
+      bmcStart = System.currentTimeMillis();
+      bmcAgingCount++;
+      mBitmapWithClock.updateClock(1);
+      bmcAgingDuration += System.currentTimeMillis() - bmcStart;
 
       // Aging CCF
       if (opsCount % mCcfAgingPeriod == 0) {
@@ -284,16 +302,20 @@ public class ConcurrentBenchmark {
         long realByte = mDataset.getRealEntrySize();
         long mbfNum = mCacheManager.getShadowCachePages();
         long mbfByte = mCacheManager.getShadowCacheBytes();
+        long bmcNum = (long)mBitmapWithClock.getItemNum();
+        long bmcByte = mBitmapWithClock.getWorkSetSize();
         long ccfNum = mClockFilter.getItemNumber();
         long ccfByte = mClockFilter.getItemSize();
         mStream.println(opsCount + "\t" + realNum + "\t" + realByte + "\t" + mbfNum + "\t" + mbfByte
-            + "\t" + ccfNum + "\t" + ccfByte);
+            + "\t" + ccfNum + "\t" + ccfByte + "\t" +bmcNum +"\t" +bmcByte);
         // accumulate error
         errCnt++;
         mbfError += Math.abs(mbfNum / (double) realNum - 1.0);
         mbfByteError += Math.abs(mbfByte / (double) realByte - 1.0);
         ccfError += Math.abs(ccfNum / (double) realNum - 1.0);
         ccfByteError += Math.abs(ccfByte / (double) realByte - 1.0);
+        bmcError += Math.abs(bmcNum / (double) realNum - 1.0);
+        bmcByteError += Math.abs(bmcByte/(double)realByte - 1.0);
       }
     }
     totalDuration = (System.currentTimeMillis() - stackTick);
@@ -310,6 +332,10 @@ public class ConcurrentBenchmark {
         ccfAgingDuration, ccfAgingCount, opsCount * 1000 / (double) ccfFilterDuration,
         opsCount * 1000 / (double) (ccfFilterDuration + ccfAgingDuration), ccfError * 100 / errCnt,
         ccfByteError * 100 / errCnt);
+    System.out.printf("BMC\t%d\t%d\t%d\t%.2f\t%.2f\t%.4f%%\t%.4f%%\n", bmcFilterDuration,
+            bmcAgingDuration, bmcAgingCount, opsCount * 1000 / (double) bmcFilterDuration,
+            opsCount * 1000 / (double) (bmcFilterDuration + bmcAgingDuration), bmcError * 100 / errCnt,
+            bmcByteError * 100 / errCnt);
   }
 
   enum SizeEncodingType {
