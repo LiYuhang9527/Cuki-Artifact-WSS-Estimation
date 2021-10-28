@@ -2,3 +2,4 @@
 target
 benchmarks
 *.iml
+*.csv
