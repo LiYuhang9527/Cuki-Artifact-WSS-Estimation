@@ -76,7 +76,9 @@ public class GeneralDataset<T> implements Dataset<T> {
     }
     // shrink window
     if (queue.size() > windowSize) {
+
       DatasetEntry<T> staleItem = queue.poll();
+      //System.out.println("set:"+staleItem.getItem());
       assert staleItem != null;
       Integer itemCount = itemToCount.get(staleItem.getItem());
       assert itemCount != null && itemCount >= 1;
