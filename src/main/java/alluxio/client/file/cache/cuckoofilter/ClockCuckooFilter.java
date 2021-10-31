@@ -13,45 +13,90 @@ package alluxio.client.file.cache.cuckoofilter;
 
 import alluxio.client.quota.CacheScope;
 
+/**
+ * This interface represents a clock cuckoo filter that supports Put/Get/Delete operations.
+ *
+ * <p>
+ * Cuckoo filter is an approximate structure for membership query. Apart from Put and Get, it also
+ * supports deleting items from filter, which is not allowed in bloom filter. See "Cuckoo Filter:
+ * Practically Better Than Bloom" by Fan et al. for more detailed description.
+ *
+ * <p>
+ * Clock cuckoo filter is an extension of basic cuckoo filter. Specifically, it has the following
+ * features: 1) sliding window model: it will automatically delete stale items, which means they are
+ * not accessed over a recent interval; 2) size estimation: it can not only report the approximate
+ * number of unique items in it, but also the total size of those items; 3) hierarchy: we assume
+ * items are organized in a hierarchical level structure, and it can report the statistics of a
+ * specific level.
+ *
+ * @param <T> the type of instances that the {@code ClockCuckooFilter} accepts
+ */
 public interface ClockCuckooFilter<T> {
+  /**
+   * Insert an item into cuckoo filter.
+   *
+   * @param item the object to be inserted
+   * @param size the size of this item
+   * @param scopeInfo the scope this item belongs to
+   * @return true if inserted successfully; false otherwise
+   */
+  boolean put(T item, int size, CacheScope scopeInfo);
 
-  public boolean put(T item, int size, CacheScope scopeInfo);
+  /**
+   * Check whether an item is in cuckoo filter (and reset its clock to MAX) or not.
+   *
+   * @param item the item to be checked
+   * @return true if item is in cuckoo filter; false otherwise
+   */
+  boolean mightContainAndResetClock(T item);
 
-  public boolean mightContainAndResetClock(T item);
+  /**
+   * Check whether an item is in cuckoo filter or not. This method will not change item's clock.
+   *
+   * @param item the item to be checked
+   * @return true if item is in cuckoo filter; false otherwise
+   */
+  boolean mightContain(T item);
 
-  public boolean mightContainAndResetClock(T item, int size, CacheScope scopeInfo);
+  /**
+   * Delete an item from cuckoo filter.
+   *
+   * @param item the item to be deleted
+   * @return true if the item is deleted; false otherwise
+   */
+  boolean delete(T item);
 
-  public boolean mightContain(T item);
+  /**
+   * A thread-safe method to check aging progress of each segment. Should be called on each T/(2^C),
+   * where T is the window size and C is the bits number of the CLOCK field.
+   */
+  void aging();
 
-  public boolean delete(T item);
+  /**
+   * @return the probability that {@linkplain #mightContain(Object)} will erroneously return {@code
+   * true} for an object that has not actually been put in the {@code ConcurrentCuckooFilter}.
+   */
+  double expectedFpp();
 
-  public void aging();
+  /**
+   * @return the number of items in this cuckoo filter
+   */
+  long approximateElementCount();
 
-  public int getAge(T item);
+  /**
+   * @param scopeInfo the scope to be queried
+   * @return the number of items of specified scope in this cuckoo filter
+   */
+  long approximateElementCount(CacheScope scopeInfo);
 
-  public String getSummary();
+  /**
+   * @return the size of items in this cuckoo filter
+   */
+  long approximateElementSize();
 
-  public double expectedFpp();
-
-  public int getItemNumber();
-
-  public int getItemNumber(CacheScope scopeInfo);
-
-  public int getItemSize();
-
-  public int getItemSize(CacheScope scopeInfo);
-
-  public void increaseOperationCount(int count);
-
-  public int getNumBuckets();
-
-  public int getTagsPerBucket();
-
-  public int getBitsPerTag();
-
-  public int getBitsPerClock();
-
-  public int getBitsPerSize();
-
-  public int getBitsPerScope();
+  /**
+   * @param scopeInfo the scope to be queried
+   * @return the size of items of specified scope in this cuckoo filter
+   */
+  long approximateElementSize(CacheScope scopeInfo);
 }

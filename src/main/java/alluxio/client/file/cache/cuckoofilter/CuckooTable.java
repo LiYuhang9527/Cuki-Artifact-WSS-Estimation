@@ -16,135 +16,86 @@ package alluxio.client.file.cache.cuckoofilter;
  */
 public interface CuckooTable {
   /**
-   * Read the value of tag in specified position.
+   * Reads the value of tag in specified position.
    *
-   * @param i the bucket index
-   * @param j the slot in bucket
+   * @param bucketIndex the bucket index
+   * @param slotIndex the slot in bucket
    * @return the tag value to read
    */
-  public int readTag(int i, int j);
+  int readTag(int bucketIndex, int slotIndex);
 
   /**
    * Set the value of tag in specified position.
    *
-   * @param i the bucket index
-   * @param j the slot in bucket
-   * @param t the tag value to write
+   * @param bucketIndex the bucket index
+   * @param slotIndex the slot in bucket
+   * @param tag the tag value to write
    */
-  public void writeTag(int i, int j, int t);
+  void writeTag(int bucketIndex, int slotIndex, int tag);
 
   /**
-   * Find a tag in specified bucket.
+   * Find a tag in specified bucket and return its position.
    *
-   * @param i the bucket index
+   * @param bucketIndex the bucket index
    * @param tag the tag value to find
-   * @return true if the tag is found; false otherwise
+   * @return the valid position of this tag if it is found; otherwise an invalid position indicates
+   *         that tag is not found
    */
-  public boolean findTagInBucket(int i, int tag);
+  TagPosition findTag(int bucketIndex, int tag);
 
   /**
-   * Find a tag in specified bucket and record its position.
+   * Find a tag in specified two buckets and return its position.
    *
-   * @param i the bucket index
+   * @param bucketIndex1 the first bucket index
+   * @param bucketIndex2 the second bucket index
    * @param tag the tag value to find
-   * @param position the detailed position of found tag
-   * @return true if the tag is found; false otherwise
+   * @return the valid position of this tag if it is found; otherwise an invalid position indicates
+   *         that tag is not found
    */
-  public boolean findTagInBucket(int i, int tag, TagPosition position);
+  TagPosition findTag(int bucketIndex1, int bucketIndex2, int tag);
 
   /**
-   * Find a tag in specified two buckets.
+   * Delete a tag in specified bucket and return its position.
    *
-   * @param i1 the first bucket index
-   * @param i2 the second bucket index
+   * @param bucketIndex the bucket to delete from
    * @param tag the tag value to find
-   * @return true if the tag is found; false otherwise
+   * @return the valid position of this tag if it is found and deleted; otherwise an invalid
+   *         position indicates that tag is not found
    */
-  public boolean findTagInBuckets(int i1, int i2, int tag);
-
-  /**
-   * Find a tag in specified two buckets and record its position.
-   *
-   * @param i1 the first bucket index
-   * @param i2 the second bucket index
-   * @param tag the tag value to find
-   * @param position the detailed position of found tag
-   * @return true if the tag is found; false otherwise
-   */
-  public boolean findTagInBuckets(int i1, int i2, int tag, TagPosition position);
-
-  /**
-   * Delete a tag in specified bucket.
-   *
-   * @param i the bucket index
-   * @param tag the tag value to find
-   * @return true if the tag is deleted; false otherwise
-   */
-  public boolean deleteTagFromBucket(int i, int tag);
-
-  /**
-   * Delete a tag in specified bucket and record its position.
-   *
-   * @param i the bucket to delete from
-   * @param tag the tag value to find
-   * @param position the detailed position of deleted tag
-   * @return true if the tag is found; false otherwise
-   */
-  public boolean deleteTagFromBucket(int i, int tag, TagPosition position);
+  TagPosition deleteTag(int bucketIndex, int tag);
 
   /**
    * Insert a tag into specified bucket. If no empty slot found, it will kickout one randomly and
    * return the victim's tag value.
    *
-   * @param i the bucket index
+   * @param bucketIndex the bucket index
    * @param tag the tag value to find
    * @return the tag value kicked out
    */
-  public int insertOrKickoutOne(int i, int tag);
-
-  /**
-   * Insert a tag into specified bucket. If no empty slot found, it will kickout one randomly,
-   * return the victim's tag value, and record its position.
-   *
-   * @param i the bucket want to insert
-   * @param tag the tag value to find
-   * @param position the detailed position of deleted tag
-   * @return the tag value kicked out
-   */
-  public int insertOrKickoutOne(int i, int tag, TagPosition position);
-
-  /**
-   * Insert a tag into specified bucket and record its position.
-   *
-   * @param i the bucket want to insert
-   * @param tag the tag value to find
-   * @param position the detailed position of deleted tag
-   * @return true if the tag is successfully inserted; false otherwise
-   */
-  public boolean insert(int i, int tag, TagPosition position);
+  int insertOrKickTag(int bucketIndex, int tag);
 
   /**
    * @return the number of tags per bucket
    */
-  public int getNumTagsPerBuckets();
+  int getNumTagsPerBuckets();
 
   /**
    * @return the number of buckets
    */
-  public int getNumBuckets();
+  int getNumBuckets();
 
   /**
    * @return the number of bits per tag
    */
-  public int getBitsPerTag();
+  int getBitsPerTag();
 
   /**
    * @return the number of bytes
    */
-  public int getSizeInBytes();
+  int getSizeInBytes();
 
   /**
    * @return the number of tags
    */
-  public int getSizeInTags();
+  int getSizeInTags();
 }

@@ -9,18 +9,23 @@
  * See the NOTICE file distributed with this work for information regarding copyright ownership.
  */
 
-package alluxio.client.file.cache.dataset;
-
-import org.junit.Test;
-
-import static org.junit.Assert.*;
+package alluxio.client.file.cache;
 
 
-public class DatasetUtilsTest {
-  @Test
-  public void testWindowsFileTimeToUnixSeconds() {
-    long winFileTime = 128166391024154329L;
-    long unixSeconds = 1172165502L;
-    assertEquals(unixSeconds, DatasetUtils.WindowsFileTimeToUnixSeconds(winFileTime));
+import com.google.common.hash.Funnel;
+import com.google.common.hash.PrimitiveSink;
+
+/**
+ * Funnel for PageId.
+ */
+public enum PageIdFunnel implements Funnel<PageId> {
+  FUNNEL;
+
+  /**
+   * @param from source
+   * @param into destination
+   */
+  public void funnel(PageId from, PrimitiveSink into) {
+    into.putUnencodedChars(from.getFileId()).putLong(from.getPageIndex());
   }
 }

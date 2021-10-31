@@ -13,9 +13,11 @@ package alluxio.client.file.cache.cuckoofilter;
 
 import alluxio.Constants;
 import alluxio.client.quota.CacheScope;
+import alluxio.collections.BitSet;
+import alluxio.collections.BuiltinBitSet;
 
+import com.google.common.base.Preconditions;
 import com.google.common.hash.Funnel;
-import com.google.common.hash.HashCode;
 import com.google.common.hash.HashFunction;
 import com.google.common.hash.Hashing;
 
@@ -35,10 +37,13 @@ public class ConcurrentClockCuckooFilter<T> implements ClockCuckooFilter<T>, Ser
   private static final long serialVersionUID = 1L;
 
   private static final double DEFAULT_FPP = 0.01;
+  // The default load factor is from "Cuckoo Filter: Practically Better Than Bloom" by Fan et al.
   private static final double DEFAULT_LOAD_FACTOR = 0.955;
-  private static final int MAX_CUCKOO_COUNT = 500;
   private static final int TAGS_PER_BUCKET = 4;
   private static final int DEFAULT_NUM_LOCKS = 4096;
+
+  // the maximum number of entries in a cuckoo path from "Algorithmic Improvements for Fast
+  // Concurrent Cuckoo Hashing" by Li et al.
   private static final int MAX_BFS_PATH_LEN = 5;
 
   // aging configurations
@@ -61,9 +66,8 @@ public class ConcurrentClockCuckooFilter<T> implements ClockCuckooFilter<T>, Ser
   private final int mBitsPerScope;
   private final int mMaxSize;
   private final int mMaxAge;
-  private final int mSizeMask;
   private final Funnel<? super T> mFunnel;
-  private final HashFunction mHasher;
+  private final HashFunction mHashFunction;
   private final ScopeEncoder mScopeEncoder;
   private final SegmentedLock mLocks;
   private final int[] mSegmentedAgingPointers;
@@ -72,10 +76,10 @@ public class ConcurrentClockCuckooFilter<T> implements ClockCuckooFilter<T>, Ser
   private final SlidingWindowType mSlidingWindowType;
   private final long mWindowSize;
   private final long mStartTime = System.currentTimeMillis();
-  private CuckooTable mTable;
-  private CuckooTable mClockTable;
-  private CuckooTable mSizeTable;
-  private CuckooTable mScopeTable;
+  private final CuckooTable mTable;
+  private final CuckooTable mClockTable;
+  private final CuckooTable mSizeTable;
+  private final CuckooTable mScopeTable;
 
   /**
    * The constructor of concurrent clock cuckoo filter.
@@ -89,7 +93,7 @@ public class ConcurrentClockCuckooFilter<T> implements ClockCuckooFilter<T>, Ser
    * @param funnel the funnel of T's that the constructed cuckoo filter will use
    * @param hasher the hash function the constructed cuckoo filter will use
    */
-  public ConcurrentClockCuckooFilter(CuckooTable table, CuckooTable clockTable,
+  private ConcurrentClockCuckooFilter(CuckooTable table, CuckooTable clockTable,
       CuckooTable sizeTable, CuckooTable scopeTable, SlidingWindowType slidingWindowType,
       long windowSize, Funnel<? super T> funnel, HashFunction hasher) {
     mTable = table;
@@ -103,14 +107,15 @@ public class ConcurrentClockCuckooFilter<T> implements ClockCuckooFilter<T>, Ser
     mBitsPerScope = scopeTable.getBitsPerTag();
     mMaxSize = (1 << mBitsPerSize);
     mMaxAge = (1 << mBitsPerClock) - 1;
-    mSizeMask = mMaxSize - 1;
     mSlidingWindowType = slidingWindowType;
     mWindowSize = windowSize;
     mFunnel = funnel;
-    mHasher = hasher;
-    mScopeEncoder = new ScopeEncoder(mBitsPerScope);
+    mHashFunction = hasher;
     mLocks = new SegmentedLock(Math.min(DEFAULT_NUM_LOCKS, mNumBuckets >> 1), mNumBuckets);
     // init scope statistics
+    // note that the GLOBAL scope is the default scope and is always encoded to zero
+    mScopeEncoder = new ScopeEncoder(mBitsPerScope);
+    mScopeEncoder.encode(CacheScope.GLOBAL);
     int maxNumScopes = (1 << mBitsPerScope);
     mScopeToNumber = new AtomicInteger[maxNumScopes];
     mScopeToSize = new AtomicLong[maxNumScopes];
@@ -128,7 +133,7 @@ public class ConcurrentClockCuckooFilter<T> implements ClockCuckooFilter<T>, Ser
    *
    * @param funnel the funnel of T's that the constructed cuckoo filter will use
    * @param expectedInsertions the number of expected insertions to the constructed {@code
-   *      BloomFilter}; must be positive
+   *      ConcurrentClockCuckooFilter}; must be positive
    * @param bitsPerClock the number of bits the clock field has
    * @param bitsPerSize the number of bits the size field has
    * @param bitsPerScope the number of bits the scope field has
@@ -145,26 +150,23 @@ public class ConcurrentClockCuckooFilter<T> implements ClockCuckooFilter<T>, Ser
       SlidingWindowType slidingWindowType, long windowSize, double fpp, double loadFactor,
       HashFunction hasher) {
     // make expectedInsertions a power of 2
-    int bitsPerTag = Utils.optimalBitsPerTag(fpp, loadFactor);
-    long numBuckets = Utils.optimalBuckets(expectedInsertions, loadFactor, TAGS_PER_BUCKET);
+    int bitsPerTag = CuckooUtils.optimalBitsPerTag(fpp, loadFactor);
+    long numBuckets = CuckooUtils.optimalBuckets(expectedInsertions, loadFactor, TAGS_PER_BUCKET);
     long numBits = numBuckets * TAGS_PER_BUCKET * bitsPerTag;
-    // TODO(iluoeli): check numBits overflow (< INT_MAX)
-    AbstractBitSet bits = new BuiltinBitSet((int) numBits);
-    CuckooTable table = new SingleCuckooTable(bits, (int) numBuckets, TAGS_PER_BUCKET, bitsPerTag);
+    BitSet bits = new BuiltinBitSet((int) numBits);
+    CuckooTable table = new SimpleCuckooTable(bits, (int) numBuckets, TAGS_PER_BUCKET, bitsPerTag);
 
-    AbstractBitSet clockBits =
-        new BuiltinBitSet((int) (numBuckets * TAGS_PER_BUCKET * bitsPerClock));
+    BitSet clockBits = new BuiltinBitSet((int) (numBuckets * TAGS_PER_BUCKET * bitsPerClock));
     CuckooTable clockTable =
-        new SingleCuckooTable(clockBits, (int) numBuckets, TAGS_PER_BUCKET, bitsPerClock);
+        new SimpleCuckooTable(clockBits, (int) numBuckets, TAGS_PER_BUCKET, bitsPerClock);
 
-    AbstractBitSet sizeBits = new BuiltinBitSet((int) (numBuckets * TAGS_PER_BUCKET * bitsPerSize));
+    BitSet sizeBits = new BuiltinBitSet((int) (numBuckets * TAGS_PER_BUCKET * bitsPerSize));
     CuckooTable sizeTable =
-        new SingleCuckooTable(sizeBits, (int) numBuckets, TAGS_PER_BUCKET, bitsPerSize);
+        new SimpleCuckooTable(sizeBits, (int) numBuckets, TAGS_PER_BUCKET, bitsPerSize);
 
-    AbstractBitSet scopeBits =
-        new BuiltinBitSet((int) (numBuckets * TAGS_PER_BUCKET * bitsPerScope));
+    BitSet scopeBits = new BuiltinBitSet((int) (numBuckets * TAGS_PER_BUCKET * bitsPerScope));
     CuckooTable scopeTable =
-        new SingleCuckooTable(scopeBits, (int) numBuckets, TAGS_PER_BUCKET, bitsPerScope);
+        new SimpleCuckooTable(scopeBits, (int) numBuckets, TAGS_PER_BUCKET, bitsPerScope);
     return new ConcurrentClockCuckooFilter<>(table, clockTable, sizeTable, scopeTable,
         slidingWindowType, windowSize, funnel, hasher);
   }
@@ -174,7 +176,7 @@ public class ConcurrentClockCuckooFilter<T> implements ClockCuckooFilter<T>, Ser
    *
    * @param funnel the funnel of T's that the constructed {@code BloomFilter} will use
    * @param expectedInsertions the number of expected insertions to the constructed {@code
-   *      BloomFilter}; must be positive
+   *      ConcurrentClockCuckooFilter}; must be positive
    * @param bitsPerClock the number of bits the clock field has
    * @param bitsPerSize the number of bits the size field has
    * @param bitsPerScope the number of bits the scope field has
@@ -197,7 +199,7 @@ public class ConcurrentClockCuckooFilter<T> implements ClockCuckooFilter<T>, Ser
    *
    * @param funnel the funnel of T's that the constructed {@code BloomFilter} will use
    * @param expectedInsertions the number of expected insertions to the constructed {@code
-   *      BloomFilter}; must be positive
+   *      ConcurrentClockCuckooFilter}; must be positive
    * @param bitsPerClock the number of bits the clock field has
    * @param bitsPerSize the number of bits the size field has
    * @param bitsPerScope the number of bits the scope field has
@@ -219,7 +221,7 @@ public class ConcurrentClockCuckooFilter<T> implements ClockCuckooFilter<T>, Ser
    *
    * @param funnel the funnel of T's that the constructed {@code BloomFilter} will use
    * @param expectedInsertions the number of expected insertions to the constructed {@code
-   *      BloomFilter}; must be positive
+   *      ConcurrentClockCuckooFilter}; must be positive
    * @param bitsPerClock the number of bits the clock field has
    * @param bitsPerSize the number of bits the size field has
    * @param bitsPerScope the number of bits the scope field has
@@ -240,7 +242,7 @@ public class ConcurrentClockCuckooFilter<T> implements ClockCuckooFilter<T>, Ser
    *
    * @param funnel the funnel of T's that the constructed {@code BloomFilter} will use
    * @param expectedInsertions the number of expected insertions to the constructed {@code
-   *      BloomFilter}; must be positive
+   *      ConcurrentClockCuckooFilter}; must be positive
    * @param bitsPerClock the number of bits the clock field has
    * @param bitsPerSize the number of bits the size field has
    * @param bitsPerScope the number of bits the scope field has
@@ -249,23 +251,16 @@ public class ConcurrentClockCuckooFilter<T> implements ClockCuckooFilter<T>, Ser
    */
   public static <T> ConcurrentClockCuckooFilter<T> create(Funnel<? super T> funnel,
       long expectedInsertions, int bitsPerClock, int bitsPerSize, int bitsPerScope) {
-    assert funnel != null;
-    assert expectedInsertions > 0;
-    assert bitsPerClock > 0;
-    assert bitsPerSize > 0;
-    assert bitsPerScope > 0;
+    Preconditions.checkNotNull(funnel);
+    Preconditions.checkArgument(expectedInsertions > 0);
+    Preconditions.checkArgument(bitsPerClock > 0);
+    Preconditions.checkArgument(bitsPerSize > 0);
+    Preconditions.checkArgument(bitsPerScope > 0);
     return create(funnel, expectedInsertions, bitsPerClock, bitsPerSize, bitsPerScope,
         SlidingWindowType.NONE, -1, DEFAULT_FPP);
   }
 
-  /**
-   * Insert an item into cuckoo filter.
-   *
-   * @param item the object to be inserted
-   * @param size the size of this item
-   * @param scopeInfo the scope this item belongs to
-   * @return true if inserted successfully; false otherwise
-   */
+  @Override
   public boolean put(T item, int size, CacheScope scopeInfo) {
     // NOTE: zero size is not allowed in our clock filter, because we use zero size as
     // a special case to indicate an size overflow (size > mMaxSize), and all the
@@ -273,64 +268,45 @@ public class ConcurrentClockCuckooFilter<T> implements ClockCuckooFilter<T>, Ser
     if (size <= 0) {
       return false;
     }
-    IndexAndTag indexAndTag = generateIndexAndTag(item);
-    int fp = indexAndTag.mTag;
-    int b1 = indexAndTag.mBucket;
-    int b2 = altIndex(b1, fp);
+    long hv = hashValue(item);
+    int tag = tagHash(hv);
+    int b1 = indexHash(hv);
+    int b2 = altIndex(b1, tag);
     int scope = encodeScope(scopeInfo);
     size = encodeSize(size);
-    TagPosition pos = new TagPosition();
     // Generally, we will hold write locks in two places:
     // 1) put/delete;
     // 2) cuckooPathSearch & cuckooPathMove.
     // But We only execute opportunistic aging in put/delete.
     // This is because we expect cuckoo path search & move to be as fast as possible,
     // or it may be more possible to fail.
-    lockTwoWriteAndOpportunisticAging(b1, b2);
-    boolean done = cuckooInsertLoop(b1, b2, fp, pos);
-    if (done && pos.mStatus == CuckooStatus.OK) {
+    writeLockAndOpportunisticAging(b1, b2);
+    TagPosition pos = cuckooInsertLoop(b1, b2, tag);
+    if (pos.mStatus == CuckooStatus.OK) {
       // b1 and b2 should be insertable for fp, which means:
       // 1. b1 or b2 have at least one empty slot (this is guaranteed until we unlock two buckets);
       // 2. b1 and b2 do not contain duplicated fingerprint.
-      assert (pos.getBucketIndex() >= 0 && pos.getTagIndex() >= 0);
-      assert mTable.readTag(pos.getBucketIndex(), pos.getTagIndex()) == 0;
-      assert !mTable.findTagInBuckets(b1, b2, fp);
-      mTable.writeTag(pos.getBucketIndex(), pos.getTagIndex(), fp);
-      mClockTable.writeTag(pos.getBucketIndex(), pos.getTagIndex(), 0xffffffff);
-      mScopeTable.writeTag(pos.getBucketIndex(), pos.getTagIndex(), scope);
-      mSizeTable.writeTag(pos.getBucketIndex(), pos.getTagIndex(), size);
+      mTable.writeTag(pos.getBucketIndex(), pos.getSlotIndex(), tag);
+      mClockTable.writeTag(pos.getBucketIndex(), pos.getSlotIndex(), mMaxAge);
+      mScopeTable.writeTag(pos.getBucketIndex(), pos.getSlotIndex(), scope);
+      mSizeTable.writeTag(pos.getBucketIndex(), pos.getSlotIndex(), size);
       // update statistics
       mNumItems.incrementAndGet();
       mTotalBytes.addAndGet(size);
       updateScopeStatistics(scope, 1, size);
-      mLocks.unlockTwoWrite(b1, b2);
+      mLocks.unlockWrite(b1, b2);
       return true;
     }
-    mLocks.unlockTwoWrite(b1, b2);
+    mLocks.unlockWrite(b1, b2);
     return false;
   }
 
-  /**
-   * Check whether an item is in cuckoo filter (and reset its clock to MAX) or not.
-   *
-   * @param item the item to be checked
-   * @return true if item is in cuckoo filter; false otherwise
-   */
+  @Override
   public boolean mightContainAndResetClock(T item) {
     return mightContainAndOptionalResetClock(item, true);
   }
 
   @Override
-  public boolean mightContainAndResetClock(T item, int size, CacheScope scopeInfo) {
-    return mightContainAndResetClock(item);
-  }
-
-  /**
-   * Check whether an item is in cuckoo filter or not. This method will not change item's clock.
-   *
-   * @param item the item to be checked
-   * @return true if item is in cuckoo filter; false otherwise
-   */
   public boolean mightContain(T item) {
     return mightContainAndOptionalResetClock(item, false);
   }
@@ -341,67 +317,60 @@ public class ConcurrentClockCuckooFilter<T> implements ClockCuckooFilter<T>, Ser
    * @return true if item is in cuckoo filter; false otherwise
    */
   private boolean mightContainAndOptionalResetClock(T item, boolean shouldReset) {
-    boolean found;
-    IndexAndTag indexAndTag = generateIndexAndTag(item);
-    int b1 = indexAndTag.mBucket;
-    int tag = indexAndTag.mTag;
+    long hv = hashValue(item);
+    int tag = tagHash(hv);
+    int b1 = indexHash(hv);
     int b2 = altIndex(b1, tag);
-    mLocks.lockTwoRead(b1, b2);
-    TagPosition pos = new TagPosition();
-    found = mTable.findTagInBuckets(b1, b2, tag, pos);
+    mLocks.readLock(b1, b2);
+    TagPosition pos = mTable.findTag(b1, b2, tag);
+    boolean found = pos.getStatus() == CuckooStatus.OK;
     if (found && shouldReset) {
       // set C to MAX
-      mClockTable.writeTag(pos.getBucketIndex(), pos.getTagIndex(), 0xffffffff);
+      mClockTable.writeTag(pos.getBucketIndex(), pos.getSlotIndex(), mMaxAge);
     }
-    mLocks.unlockTwoRead(b1, b2);
+    mLocks.unlockRead(b1, b2);
     return found;
   }
 
-  /**
-   * Delete an item from cuckoo filter.
-   *
-   * @param item the item to be deleted
-   * @return true if the item is deleted; false otherwise
-   */
+  @Override
   public boolean delete(T item) {
-    IndexAndTag indexAndTag = generateIndexAndTag(item);
-    int i1 = indexAndTag.mBucket;
-    int tag = indexAndTag.mTag;
-    int i2 = altIndex(i1, tag);
-    lockTwoWriteAndOpportunisticAging(i1, i2);
-    TagPosition pos = new TagPosition();
-    if (mTable.deleteTagFromBucket(i1, tag, pos) || mTable.deleteTagFromBucket(i2, tag, pos)) {
+    long hv = hashValue(item);
+    int tag = tagHash(hv);
+    int b1 = indexHash(hv);
+    int b2 = altIndex(b1, tag);
+    writeLockAndOpportunisticAging(b1, b2);
+    TagPosition pos = mTable.deleteTag(b1, tag);
+    if (pos.getStatus() != CuckooStatus.OK) {
+      pos = mTable.deleteTag(b2, tag);
+    }
+    if (pos.getStatus() == CuckooStatus.OK) {
       mNumItems.decrementAndGet();
-      int scope = mScopeTable.readTag(pos.getBucketIndex(), pos.getTagIndex());
-      int size = mSizeTable.readTag(pos.getBucketIndex(), pos.getTagIndex());
+      int scope = mScopeTable.readTag(pos.getBucketIndex(), pos.getSlotIndex());
+      int size = mSizeTable.readTag(pos.getBucketIndex(), pos.getSlotIndex());
       size = decodeSize(size);
       updateScopeStatistics(scope, -1, -size);
       // Clear Clock
-      mClockTable.writeTag(pos.getBucketIndex(), pos.getTagIndex(), 0);
-      mLocks.unlockTwoWrite(i1, i2);
+      mClockTable.writeTag(pos.getBucketIndex(), pos.getSlotIndex(), 0);
+      mLocks.unlockWrite(b1, b2);
       return true;
     }
-    mLocks.unlockTwoWrite(i1, i2);
+    mLocks.unlockWrite(b1, b2);
     return false;
   }
 
-  /**
-   * A thread-safe method to check aging progress of each segment. Should be called on each T/(2^C),
-   * where T is the window size and C is the bits number of the CLOCK field.
-   */
+  @Override
   public void aging() {
     int numSegments = mLocks.getNumLocks();
     int bucketsPerSegment = mLocks.getNumBucketsPerSegment();
     for (int i = 0; i < numSegments; i++) {
-      assert mSegmentedAgingPointers[i] <= bucketsPerSegment;
       // TODO(iluoeli): avoid acquire locks here since it may be blocked
       // for a long time if this segment is contended by multiple users.
-      mLocks.lockOneSegmentWrite(i);
+      mLocks.writeLockSegment(i);
       if (mSegmentedAgingPointers[i] < bucketsPerSegment) {
         agingSegment(i, bucketsPerSegment);
       }
       mSegmentedAgingPointers[i] = 0;
-      mLocks.unlockOneSegmentWrite(i);
+      mLocks.unlockWriteSegment(i);
     }
   }
 
@@ -412,20 +381,18 @@ public class ConcurrentClockCuckooFilter<T> implements ClockCuckooFilter<T>, Ser
    * @return the clock value
    */
   public int getAge(T item) {
-    boolean found;
-    IndexAndTag indexAndTag = generateIndexAndTag(item);
-    int i1 = indexAndTag.mBucket;
-    int tag = indexAndTag.mTag;
-    int i2 = altIndex(i1, tag);
-    mLocks.lockTwoRead(i1, i2);
-    TagPosition pos = new TagPosition();
-    found = mTable.findTagInBuckets(i1, i2, tag, pos);
-    if (found) {
-      int clock = mClockTable.readTag(pos.getBucketIndex(), pos.getTagIndex());
-      mLocks.unlockTwoRead(i1, i2);
+    long hv = hashValue(item);
+    int tag = tagHash(hv);
+    int b1 = indexHash(hv);
+    int b2 = altIndex(b1, tag);
+    mLocks.readLock(b1, b2);
+    TagPosition pos = mTable.findTag(b1, b2, tag);
+    if (pos.getStatus() == CuckooStatus.OK) {
+      int clock = mClockTable.readTag(pos.getBucketIndex(), pos.getSlotIndex());
+      mLocks.unlockRead(b1, b2);
       return clock;
     }
-    mLocks.unlockTwoRead(i1, i2);
+    mLocks.unlockRead(b1, b2);
     return 0;
   }
 
@@ -442,45 +409,31 @@ public class ConcurrentClockCuckooFilter<T> implements ClockCuckooFilter<T>, Ser
             + getNumBuckets() * getTagsPerBucket() * mBitsPerScope / 8.0 / Constants.MB);
   }
 
-  /**
-   * @return the probability that {@linkplain #mightContain(Object)} will erroneously return {@code
-   * true} for an object that has not actually been put in the {@code ConcurrentCuckooFilter}.
-   */
+  @Override
   public double expectedFpp() {
-    // TODO(iluoeli): compute real fpp
-    return DEFAULT_FPP;
+    // equation from "Cuckoo Filter: Simplification and Analysis" by David Eppstein (Theorem 5.1)
+    return 2 * mNumItems.doubleValue()
+        / (mNumBuckets * TAGS_PER_BUCKET * ((1L << mBitsPerTag) - 1));
   }
 
-  /**
-   * @return the number of items in this cuckoo filter
-   */
-  public int getItemNumber() {
+  @Override
+  public long approximateElementCount() {
     return mNumItems.intValue();
   }
 
-  /**
-   * @param scopeInfo the scope bo be queried
-   * @return the number of items of specified scope in this cuckoo filter
-   */
-  public int getItemNumber(CacheScope scopeInfo) {
-    int scope = encodeScope(scopeInfo);
-    return mScopeToNumber[scope].get();
+  @Override
+  public long approximateElementCount(CacheScope scopeInfo) {
+    return mScopeToNumber[encodeScope(scopeInfo)].get();
   }
 
-  /**
-   * @return the size of items in this cuckoo filter
-   */
-  public int getItemSize() {
-    return mTotalBytes.intValue();
+  @Override
+  public long approximateElementSize() {
+    return mTotalBytes.get();
   }
 
-  /**
-   * @param scopeInfo the scope bo be queried
-   * @return the size of items of specified scope in this cuckoo filter
-   */
-  public int getItemSize(CacheScope scopeInfo) {
-    int scope = encodeScope(scopeInfo);
-    return mScopeToSize[scope].intValue();
+  @Override
+  public long approximateElementSize(CacheScope scopeInfo) {
+    return mScopeToSize[encodeScope(scopeInfo)].get();
   }
 
   /**
@@ -535,13 +488,21 @@ public class ConcurrentClockCuckooFilter<T> implements ClockCuckooFilter<T>, Ser
   }
 
   /**
+   * @param item the object to be hashed
+   * @return the hash code of this item
+   */
+  private long hashValue(T item) {
+    return mHashFunction.newHasher().putObject(item, mFunnel).hash().asLong();
+  }
+
+  /**
    * Compute the index from a hash value.
    *
    * @param hv the hash value used for computing
    * @return the bucket computed on given hash value
    */
-  private int indexHash(int hv) {
-    return Utils.indexHash(hv, mNumBuckets);
+  private int indexHash(long hv) {
+    return CuckooUtils.indexHash((int) (hv >> 32), mNumBuckets);
   }
 
   /**
@@ -550,8 +511,8 @@ public class ConcurrentClockCuckooFilter<T> implements ClockCuckooFilter<T>, Ser
    * @param hv the hash value used for computing
    * @return the fingerprint computed on given hash value
    */
-  private int tagHash(int hv) {
-    return Utils.tagHash(hv, mBitsPerTag);
+  private int tagHash(long hv) {
+    return CuckooUtils.tagHash((int) hv, mBitsPerTag);
   }
 
   /**
@@ -562,28 +523,20 @@ public class ConcurrentClockCuckooFilter<T> implements ClockCuckooFilter<T>, Ser
    * @return the alternative bucket
    */
   private int altIndex(int index, int tag) {
-    return Utils.altIndex(index, tag, mNumBuckets);
+    return CuckooUtils.altIndex(index, tag, mNumBuckets);
   }
 
   /**
-   * Compute the index and tag for given item.
-   *
-   * @param item the item for computing
-   * @return the bucket and fingerprint of item
-   */
-  private IndexAndTag generateIndexAndTag(T item) {
-    HashCode hashCode = mHasher.newHasher().putObject(item, mFunnel).hash();
-    long hv = hashCode.asLong();
-    return Utils.generateIndexAndTag(hv, mNumBuckets, mBitsPerTag);
-  }
-
-  /**
-   * Encode a scope information into a integer type.
+   * Encode a scope information into a integer type (storage type). We only store table-level or
+   * higher level scope information, so file-level (partition-level) scope will not be stored.
    *
    * @param scopeInfo the scope to be encoded
    * @return the encoded number of scope
    */
   private int encodeScope(CacheScope scopeInfo) {
+    if (scopeInfo.level() == CacheScope.Level.PARTITION) {
+      return mScopeEncoder.encode(scopeInfo.parent());
+    }
     return mScopeEncoder.encode(scopeInfo);
   }
 
@@ -594,8 +547,7 @@ public class ConcurrentClockCuckooFilter<T> implements ClockCuckooFilter<T>, Ser
    * @return the storage type of the encoded size
    */
   private int encodeSize(int size) {
-    size = Math.min(mMaxSize, size);
-    return size;
+    return Math.min(mMaxSize, size);
   }
 
   /**
@@ -629,20 +581,18 @@ public class ConcurrentClockCuckooFilter<T> implements ClockCuckooFilter<T>, Ser
    * @param b1 the first bucket
    * @param b2 the second bucket
    * @param fp the fingerprint
-   * @param pos the position
-   * @return true iff found an empty slot (stored in pos); false otherwise
+   * @return a valid tag position pointing to the empty slot; otherwise an invalid tat position
+   *         indicating failure
    */
-  private boolean cuckooInsertLoop(int b1, int b2, int fp, TagPosition pos) {
+  private TagPosition cuckooInsertLoop(int b1, int b2, int fp) {
     int maxRetryNum = 1;
-    boolean done = false;
     while (maxRetryNum-- > 0) {
-      if (cuckooInsert(b1, b2, fp, pos)) {
-        done = true;
-        pos.mStatus = CuckooStatus.OK;
-        break;
+      TagPosition pos = cuckooInsert(b1, b2, fp);
+      if (pos.getStatus() == CuckooStatus.OK) {
+        return pos;
       }
     }
-    return done;
+    return new TagPosition(-1, -1, CuckooStatus.FAILURE);
   }
 
   /**
@@ -651,43 +601,34 @@ public class ConcurrentClockCuckooFilter<T> implements ClockCuckooFilter<T>, Ser
    * @param b1 the first bucket
    * @param b2 the second bucket
    * @param fp the fingerprint
-   * @param pos the position
-   * @return true iff found an empty slot (stored in pos); false otherwise
+   * @return a valid tag position pointing to the empty slot; otherwise an invalid tat position
+   *         indicating failure
    */
-  private boolean cuckooInsert(int b1, int b2, int fp, TagPosition pos) {
-    TagPosition pos1 = new TagPosition();
-    TagPosition pos2 = new TagPosition();
+  private TagPosition cuckooInsert(int b1, int b2, int fp) {
     // try find b1 and b2 firstly
-    if (!tryFindInsertBucket(b1, fp, pos1)) {
-      pos.setStatus(CuckooStatus.FAILURE_KEY_DUPLICATED);
-      return false;
+    TagPosition pos1 = tryFindInsertBucket(b1, fp);
+    if (pos1.getStatus() == CuckooStatus.FAILURE_KEY_DUPLICATED) {
+      return pos1;
     }
-    if (!tryFindInsertBucket(b2, fp, pos2)) {
-      pos.setStatus(CuckooStatus.FAILURE_KEY_DUPLICATED);
-      return false;
+    TagPosition pos2 = tryFindInsertBucket(b2, fp);
+    if (pos2.getStatus() == CuckooStatus.FAILURE_KEY_DUPLICATED) {
+      return pos2;
     }
-    if (pos1.getTagIndex() != -1) {
-      pos.setBucketAndSlot(b1, pos1.getTagIndex());
-      pos.setStatus(CuckooStatus.OK);
-      return true;
+    if (pos1.getStatus() == CuckooStatus.OK) {
+      return pos1;
     }
-    if (pos2.getTagIndex() != -1) {
-      pos.setBucketAndSlot(b2, pos2.getTagIndex());
-      pos.setStatus(CuckooStatus.OK);
-      return true;
+    if (pos2.getStatus() == CuckooStatus.OK) {
+      return pos2;
     }
     // then BFS search from b1 and b2
-    boolean done = runCuckoo(b1, b2, fp, pos);
-    if (done) {
+    TagPosition pos = runCuckoo(b1, b2, fp);
+    if (pos.getStatus() == CuckooStatus.OK) {
       // avoid another duplicated key is inserted during runCuckoo.
-      if (mTable.findTagInBuckets(b1, b2, fp)) {
+      if (mTable.findTag(b1, b2, fp).getStatus() == CuckooStatus.OK) {
         pos.setStatus(CuckooStatus.FAILURE_KEY_DUPLICATED);
-        return false;
-      } else {
-        return true;
       }
     }
-    return false;
+    return pos;
   }
 
   /**
@@ -696,11 +637,12 @@ public class ConcurrentClockCuckooFilter<T> implements ClockCuckooFilter<T>, Ser
    * @param b1 the first bucket
    * @param b2 the second bucket
    * @param fp the fingerprint
-   * @param pos the position
-   * @return true iff found an empty slot (stored in pos); false otherwise
+   * @return a valid tag position pointing to the empty slot; otherwise an invalid tat position
+   *         indicating failure
    */
-  private boolean runCuckoo(int b1, int b2, int fp, TagPosition pos) {
-    mLocks.unlockTwoWrite(b1, b2);
+  private TagPosition runCuckoo(int b1, int b2, int fp) {
+    mLocks.unlockWrite(b1, b2);
+    TagPosition pos = new TagPosition(-1, -1, CuckooStatus.FAILURE);
     int maxPathLen = MAX_BFS_PATH_LEN;
     CuckooRecord[] cuckooPath = new CuckooRecord[maxPathLen];
     for (int i = 0; i < maxPathLen; i++) {
@@ -713,7 +655,7 @@ public class ConcurrentClockCuckooFilter<T> implements ClockCuckooFilter<T>, Ser
         break;
       }
       if (cuckooPathMove(b1, b2, fp, cuckooPath, depth)) {
-        pos.setBucketAndSlot(cuckooPath[0].mBucket, cuckooPath[0].mSlot);
+        pos.setBucketAndSlot(cuckooPath[0].mBucketIndex, cuckooPath[0].mSlotIndex);
         pos.setStatus(CuckooStatus.OK);
         done = true;
       }
@@ -721,9 +663,9 @@ public class ConcurrentClockCuckooFilter<T> implements ClockCuckooFilter<T>, Ser
     if (!done) {
       // NOTE: since we assume holding the locks of two buckets before calling this method,
       // we keep this assumptions after return.
-      mLocks.lockTwoWrite(b1, b2);
+      mLocks.writeLock(b1, b2);
     }
-    return done;
+    return pos;
   }
 
   /**
@@ -744,37 +686,36 @@ public class ConcurrentClockCuckooFilter<T> implements ClockCuckooFilter<T>, Ser
     }
     // 2. re-construct path from x
     for (int i = x.mDepth; i >= 0; i--) {
-      cuckooPath[i].mSlot = x.mPathcode % TAGS_PER_BUCKET;
+      cuckooPath[i].mSlotIndex = x.mPathcode % TAGS_PER_BUCKET;
       x.mPathcode /= TAGS_PER_BUCKET;
     }
     if (x.mPathcode == 0) {
-      cuckooPath[0].mBucket = b1;
+      cuckooPath[0].mBucketIndex = b1;
     } else {
-      assert x.mPathcode == 1;
-      cuckooPath[0].mBucket = b2;
+      cuckooPath[0].mBucketIndex = b2;
     }
     {
-      mLocks.lockOneWrite(cuckooPath[0].mBucket);
-      int tag = mTable.readTag(cuckooPath[0].mBucket, cuckooPath[0].mSlot);
+      mLocks.writeLock(cuckooPath[0].mBucketIndex);
+      int tag = mTable.readTag(cuckooPath[0].mBucketIndex, cuckooPath[0].mSlotIndex);
       if (tag == 0) {
-        mLocks.unlockOneWrite(cuckooPath[0].mBucket);
+        mLocks.unlockWrite(cuckooPath[0].mBucketIndex);
         return 0;
       }
-      mLocks.unlockOneWrite(cuckooPath[0].mBucket);
+      mLocks.unlockWrite(cuckooPath[0].mBucketIndex);
       cuckooPath[0].mFingerprint = tag;
     }
     for (int i = 1; i <= x.mDepth; i++) {
       CuckooRecord curr = cuckooPath[i];
       CuckooRecord prev = cuckooPath[i - 1];
-      curr.mBucket = altIndex(prev.mBucket, prev.mFingerprint);
-      mLocks.lockOneWrite(curr.mBucket);
-      int tag = mTable.readTag(curr.mBucket, curr.mSlot);
+      curr.mBucketIndex = altIndex(prev.mBucketIndex, prev.mFingerprint);
+      mLocks.writeLock(curr.mBucketIndex);
+      int tag = mTable.readTag(curr.mBucketIndex, curr.mSlotIndex);
       if (tag == 0) {
-        mLocks.unlockOneWrite(curr.mBucket);
+        mLocks.unlockWrite(curr.mBucketIndex);
         return i;
       }
       curr.mFingerprint = tag;
-      mLocks.unlockOneWrite(curr.mBucket);
+      mLocks.unlockWrite(curr.mBucketIndex);
     }
     return x.mDepth;
   }
@@ -791,26 +732,25 @@ public class ConcurrentClockCuckooFilter<T> implements ClockCuckooFilter<T>, Ser
     Queue<BFSEntry> queue = new LinkedList<>();
     queue.offer(new BFSEntry(b1, 0, 0));
     queue.offer(new BFSEntry(b2, 1, 0));
-    int maxPathLen = MAX_BFS_PATH_LEN;
     while (!queue.isEmpty()) {
       BFSEntry x = queue.poll();
-      mLocks.lockOneWrite(x.mBucket);
+      mLocks.writeLock(x.mBucketIndex);
       // pick a random slot to start on
       int startingSlot = x.mPathcode % TAGS_PER_BUCKET;
       for (int i = 0; i < TAGS_PER_BUCKET; i++) {
         int slot = (startingSlot + i) % TAGS_PER_BUCKET;
-        int tag = mTable.readTag(x.mBucket, slot);
+        int tag = mTable.readTag(x.mBucketIndex, slot);
         if (tag == 0) {
           x.mPathcode = x.mPathcode * TAGS_PER_BUCKET + slot;
-          mLocks.unlockOneWrite(x.mBucket);
+          mLocks.unlockWrite(x.mBucketIndex);
           return x;
         }
-        if (x.mDepth < maxPathLen - 1) {
-          queue.offer(new BFSEntry(altIndex(x.mBucket, tag), x.mPathcode * TAGS_PER_BUCKET + slot,
-              x.mDepth + 1));
+        if (x.mDepth < MAX_BFS_PATH_LEN - 1) {
+          queue.offer(new BFSEntry(altIndex(x.mBucketIndex, tag),
+              x.mPathcode * TAGS_PER_BUCKET + slot, x.mDepth + 1));
         }
       }
-      mLocks.unlockOneWrite(x.mBucket);
+      mLocks.unlockWrite(x.mBucketIndex);
     }
     return new BFSEntry(0, 0, -1);
   }
@@ -827,12 +767,12 @@ public class ConcurrentClockCuckooFilter<T> implements ClockCuckooFilter<T>, Ser
    */
   private boolean cuckooPathMove(int b1, int b2, int fp, CuckooRecord[] cuckooPath, int depth) {
     if (depth == 0) {
-      mLocks.lockTwoWrite(b1, b2);
-      if (mTable.readTag(cuckooPath[0].mBucket, cuckooPath[0].mSlot) == 0) {
-        mLocks.unlockTwoWrite(b1, b2);
+      mLocks.writeLock(b1, b2);
+      if (mTable.readTag(cuckooPath[0].mBucketIndex, cuckooPath[0].mSlotIndex) == 0) {
+        mLocks.unlockWrite(b1, b2);
         return true;
       } else {
-        mLocks.unlockTwoWrite(b1, b2);
+        mLocks.unlockWrite(b1, b2);
         return false;
       }
     }
@@ -843,70 +783,46 @@ public class ConcurrentClockCuckooFilter<T> implements ClockCuckooFilter<T>, Ser
       if (depth == 1) {
         // NOTE: We must hold the locks of b1 and b2.
         // Or their slots may be preempted by another key if we released locks.
-        mLocks.lockThreeWrite(b1, b2, to.mBucket);
+        mLocks.writeLock(b1, b2, to.mBucketIndex);
       } else {
-        mLocks.lockTwoWrite(from.mBucket, to.mBucket);
+        mLocks.writeLock(from.mBucketIndex, to.mBucketIndex);
       }
-      int fromTag = mTable.readTag(from.mBucket, from.mSlot);
+      int fromTag = mTable.readTag(from.mBucketIndex, from.mSlotIndex);
       // if `to` is nonempty, or `from` is not occupied by original tag,
       // in both cases, abort this insertion.
-      if (mTable.readTag(to.mBucket, to.mSlot) != 0 || fromTag != from.mFingerprint) {
+      if (mTable.readTag(to.mBucketIndex, to.mSlotIndex) != 0 || fromTag != from.mFingerprint) {
         if (depth == 1) {
-          mLocks.unlockThreeWrite(b1, b2, to.mBucket);
+          // NOTE: We must hold the locks of b1 and b2.
+          // Or their slots may be preempted by another key if we released locks.
+          mLocks.unlockWrite(b1, b2, to.mBucketIndex);
         } else {
-          mLocks.unlockTwoWrite(from.mBucket, to.mBucket);
+          mLocks.unlockWrite(from.mBucketIndex, to.mBucketIndex);
         }
         return false;
       }
-      mTable.writeTag(to.mBucket, to.mSlot, fromTag);
-      // tune clock field
-      int clock = mClockTable.readTag(from.mBucket, from.mSlot);
-      int fromSegIndex = mLocks.getSegmentIndex(from.mBucket);
-      int toSegIndex = mLocks.getSegmentIndex(to.mBucket);
-      int fromIndex = from.mBucket % mLocks.getNumBucketsPerSegment();
-      int toIndex = to.mBucket % mLocks.getNumBucketsPerSegment();
-      if (mSegmentedAgingPointers[fromSegIndex] > fromIndex
-          && mSegmentedAgingPointers[toSegIndex] <= toIndex) {
-        clock = Math.min(mMaxAge, clock + 1);
-      } else if (mSegmentedAgingPointers[fromSegIndex] <= fromIndex
-          && mSegmentedAgingPointers[toSegIndex] > toIndex) {
-        clock = Math.max(0, clock - 1);
-      }
-      mClockTable.writeTag(to.mBucket, to.mSlot, clock);
-      mScopeTable.writeTag(to.mBucket, to.mSlot, mScopeTable.readTag(from.mBucket, from.mSlot));
-      mSizeTable.writeTag(to.mBucket, to.mSlot, mSizeTable.readTag(from.mBucket, from.mSlot));
-      mTable.writeTag(from.mBucket, from.mSlot, 0);
+      mTable.writeTag(to.mBucketIndex, to.mSlotIndex, fromTag);
+      mClockTable.writeTag(to.mBucketIndex, to.mSlotIndex,
+          mClockTable.readTag(from.mBucketIndex, from.mSlotIndex));
+      mScopeTable.writeTag(to.mBucketIndex, to.mSlotIndex,
+          mScopeTable.readTag(from.mBucketIndex, from.mSlotIndex));
+      mSizeTable.writeTag(to.mBucketIndex, to.mSlotIndex,
+          mSizeTable.readTag(from.mBucketIndex, from.mSlotIndex));
+      mTable.writeTag(from.mBucketIndex, from.mSlotIndex, 0);
       if (depth == 1) {
-        // is it probable to.bucket is one of b1 and b2 ?
-        if (to.mBucket != b1 && to.mBucket != b2) {
-          mLocks.unlockOneWrite(to.mBucket);
+        // if to.mBucketIndex share the same lock with one of b1 and b2, we should not release its
+        // lock
+        int seg1 = mLocks.getSegmentIndex(b1);
+        int seg2 = mLocks.getSegmentIndex(b2);
+        int seg3 = mLocks.getSegmentIndex(to.mBucketIndex);
+        if (seg3 != seg1 && seg3 != seg2) {
+          mLocks.unlockWrite(to.mBucketIndex);
         }
       } else {
-        mLocks.unlockTwoWrite(from.mBucket, to.mBucket);
+        mLocks.unlockWrite(from.mBucketIndex, to.mBucketIndex);
       }
       depth--;
     }
     return true;
-  }
-
-  /**
-   * Find tag `fp` in bucket b1 and b2.
-   *
-   * @param b1 the first bucket
-   * @param b2 the second bucket
-   * @param fp the fingerprint
-   * @return the position of `fp`
-   */
-  private TagPosition cuckooFind(int b1, int b2, int fp) {
-    TagPosition pos = new TagPosition(-1, -1);
-    if (!tryFindInsertBucket(b1, fp, pos)) {
-      return pos;
-    }
-    if (!tryFindInsertBucket(b2, fp, pos)) {
-      return pos;
-    }
-    pos.setTagIndex(-1);
-    return pos;
   }
 
   /**
@@ -917,21 +833,22 @@ public class ConcurrentClockCuckooFilter<T> implements ClockCuckooFilter<T>, Ser
    * @return true if no duplicated key is found, and `pos.slot` points to an empty slot (if pos.tag
    *         != -1); otherwise return false, and store the position of duplicated key in `pos.slot`.
    */
-  private boolean tryFindInsertBucket(int i, int fp, TagPosition pos) {
-    pos.setBucketAndSlot(i, -1);
-    for (int j = 0; j < TAGS_PER_BUCKET; j++) {
-      int tag = mTable.readTag(i, j);
+  private TagPosition tryFindInsertBucket(int i, int fp) {
+    TagPosition pos = new TagPosition(i, -1, CuckooStatus.FAILURE_TABLE_FULL);
+    for (int slotIndex = 0; slotIndex < TAGS_PER_BUCKET; slotIndex++) {
+      int tag = mTable.readTag(i, slotIndex);
       if (tag != 0) {
         if (tag == fp) {
-          pos.setTagIndex(j);
+          pos.setSlotIndex(slotIndex);
           pos.setStatus(CuckooStatus.FAILURE_KEY_DUPLICATED);
-          return false;
+          return pos;
         }
       } else {
-        pos.setTagIndex(j);
+        pos.setSlotIndex(slotIndex);
+        pos.setStatus(CuckooStatus.OK);
       }
     }
-    return true;
+    return pos;
   }
 
   /**
@@ -941,8 +858,8 @@ public class ConcurrentClockCuckooFilter<T> implements ClockCuckooFilter<T>, Ser
    * @param b1 the first bucket
    * @param b2 the second bucket
    */
-  private void lockTwoWriteAndOpportunisticAging(int b1, int b2) {
-    mLocks.lockTwoWrite(b1, b2);
+  private void writeLockAndOpportunisticAging(int b1, int b2) {
+    mLocks.writeLock(b1, b2);
     opportunisticAgingSegment(mLocks.getSegmentIndex(b1));
     opportunisticAgingSegment(mLocks.getSegmentIndex(b2));
   }
@@ -984,13 +901,13 @@ public class ConcurrentClockCuckooFilter<T> implements ClockCuckooFilter<T>, Ser
    * @param i the index of the segment to be aged
    * @param maxAgingNumber the maximum number of buckets to be aged
    */
-  private void agingSegment(int i, int maxAgingNumber) {
+  private int agingSegment(int i, int maxAgingNumber) {
     int bucketsPerSegment = mLocks.getNumBucketsPerSegment();
     int startPos = mLocks.getSegmentStartPos(i);
     int numAgedBuckets = 0;
+    int numCleaned = 0;
     while (numAgedBuckets < maxAgingNumber) {
       int remainingBuckets = bucketsPerSegment - mSegmentedAgingPointers[i];
-      assert remainingBuckets >= 0;
       if (remainingBuckets == 0) {
         break;
       }
@@ -1000,9 +917,10 @@ public class ConcurrentClockCuckooFilter<T> implements ClockCuckooFilter<T>, Ser
       int from = startPos + mSegmentedAgingPointers[i];
       mAgingCount.addAndGet(bucketsToAge);
       mSegmentedAgingPointers[i] += bucketsToAge;
-      agingRange(from, from + bucketsToAge);
+      numCleaned += agingRange(from, from + bucketsToAge);
       numAgedBuckets += bucketsToAge;
     }
+    return numCleaned;
   }
 
   /**
@@ -1026,22 +944,21 @@ public class ConcurrentClockCuckooFilter<T> implements ClockCuckooFilter<T>, Ser
    */
   private int agingBucket(int b) {
     int numCleaned = 0;
-    for (int j = 0; j < TAGS_PER_BUCKET; j++) {
-      int tag = mTable.readTag(b, j);
+    for (int slotIndex = 0; slotIndex < TAGS_PER_BUCKET; slotIndex++) {
+      int tag = mTable.readTag(b, slotIndex);
       if (tag == 0) {
         continue;
       }
-      int oldClock = mClockTable.readTag(b, j);
-      assert oldClock >= 0;
+      int oldClock = mClockTable.readTag(b, slotIndex);
       if (oldClock > 0) {
-        mClockTable.writeTag(b, j, oldClock - 1);
+        mClockTable.writeTag(b, slotIndex, oldClock - 1);
       } else {
         // evict stale item
         numCleaned++;
-        mTable.writeTag(b, j, 0);
+        mTable.writeTag(b, slotIndex, 0);
         mNumItems.decrementAndGet();
-        int scope = mScopeTable.readTag(b, j);
-        int size = mSizeTable.readTag(b, j);
+        int scope = mScopeTable.readTag(b, slotIndex);
+        int size = mSizeTable.readTag(b, slotIndex);
         size = decodeSize(size);
         updateScopeStatistics(scope, -1, -size);
         mTotalBytes.addAndGet(-size);
@@ -1054,17 +971,17 @@ public class ConcurrentClockCuckooFilter<T> implements ClockCuckooFilter<T>, Ser
    * A basic entry that records information of a path node during cuckoo BFS search.
    */
   static final class BFSEntry {
-    public int mBucket;
+    public int mBucketIndex;
     public int mPathcode; // encode slot position of ancestors and it own nodes
     public int mDepth;
 
     /**
-     * @param bucket the bucket of entry
+     * @param bucketIndex the bucket of entry
      * @param pathcode the encoded slot position of ancestors and it own
      * @param depth the depth of the entry in path
      */
-    BFSEntry(int bucket, int pathcode, int depth) {
-      mBucket = bucket;
+    BFSEntry(int bucketIndex, int pathcode, int depth) {
+      mBucketIndex = bucketIndex;
       mPathcode = pathcode;
       mDepth = depth;
     }
@@ -1074,8 +991,8 @@ public class ConcurrentClockCuckooFilter<T> implements ClockCuckooFilter<T>, Ser
    * This class represents a detailed cuckoo record, include its position and stored value.
    */
   static final class CuckooRecord {
-    public int mBucket;
-    public int mSlot;
+    public int mBucketIndex;
+    public int mSlotIndex;
     public int mFingerprint;
 
     CuckooRecord() {
@@ -1083,13 +1000,13 @@ public class ConcurrentClockCuckooFilter<T> implements ClockCuckooFilter<T>, Ser
     }
 
     /**
-     * @param bucket the bucket of this record
-     * @param slot the slot of this record
+     * @param bucketIndex the bucket of this record
+     * @param slotIndex the slot of this record
      * @param fingerprint the fingerprint of this record
      */
-    CuckooRecord(int bucket, int slot, int fingerprint) {
-      mBucket = bucket;
-      mSlot = slot;
+    CuckooRecord(int bucketIndex, int slotIndex, int fingerprint) {
+      mBucketIndex = bucketIndex;
+      mSlotIndex = slotIndex;
       mFingerprint = fingerprint;
     }
   }

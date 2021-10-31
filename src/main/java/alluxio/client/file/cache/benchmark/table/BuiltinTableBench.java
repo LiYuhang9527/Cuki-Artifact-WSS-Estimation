@@ -12,9 +12,9 @@
 package alluxio.client.file.cache.benchmark.table;
 
 import alluxio.Constants;
-import alluxio.client.file.cache.cuckoofilter.BuiltinBitSet;
 import alluxio.client.file.cache.cuckoofilter.CuckooTable;
-import alluxio.client.file.cache.cuckoofilter.SingleCuckooTable;
+import alluxio.client.file.cache.cuckoofilter.SimpleCuckooTable;
+import alluxio.collections.BuiltinBitSet;
 
 public class BuiltinTableBench {
   private static final int MAX_BIT_SIZE = 125 * Constants.MB;
@@ -26,9 +26,9 @@ public class BuiltinTableBench {
     BuiltinBitSet bits = new BuiltinBitSet(MAX_BIT_SIZE);
     BuiltinBitSet bits2 = new BuiltinBitSet(MAX_BIT_SIZE);
     CuckooTable builtinTable =
-        new SingleCuckooTable(bits, NUM_BUCKETS, TAGS_PER_BUCKET, BITS_PER_TAG);
+        new SimpleCuckooTable(bits, NUM_BUCKETS, TAGS_PER_BUCKET, BITS_PER_TAG);
     CuckooTable builtinTable2 =
-        new SingleCuckooTable(bits2, NUM_BUCKETS, TAGS_PER_BUCKET, BITS_PER_TAG);
+        new SimpleCuckooTable(bits2, NUM_BUCKETS, TAGS_PER_BUCKET, BITS_PER_TAG);
     long st = System.currentTimeMillis();
     for (int i = 0; i < NUM_BUCKETS; i++) {
       for (int j = 0; j < TAGS_PER_BUCKET; j++) {
