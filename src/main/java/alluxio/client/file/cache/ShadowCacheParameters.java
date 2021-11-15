@@ -43,5 +43,9 @@ public class ShadowCacheParameters {
   @Parameter(names = "--num_blooms")
   public int mNumBloom = 4;
 
+  // String key + page index
+  @Parameter(names  ="--page_bits")
+  public int mPageBits = 8*16 + 64;
+
   public int mAgeLevels = 0;
 }

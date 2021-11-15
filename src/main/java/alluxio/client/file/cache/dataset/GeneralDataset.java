@@ -86,6 +86,7 @@ public class GeneralDataset<T> implements Dataset<T> {
             scopeToSize.getOrDefault(staleItem.getScopeInfo(), 0) - staleItem.getSize());
         scopeToNumber.put(staleItem.getScopeInfo(),
             scopeToNumber.getOrDefault(staleItem.getScopeInfo(), 0) - 1);
+        //
         realSize -= staleItem.getSize();
       } else {
         itemToCount.put(staleItem.getItem(), itemCount - 1);
