@@ -11,7 +11,7 @@
 
 package alluxio.client.file.cache;
 
-import static java.lang.Math.min;
+import static java.util.concurrent.TimeUnit.MILLISECONDS;
 
 import alluxio.Constants;
 import alluxio.client.quota.CacheScope;
@@ -21,33 +21,31 @@ import com.google.common.hash.Funnel;
 import com.google.common.hash.HashFunction;
 import com.google.common.hash.Hashing;
 
-import java.util.LinkedList;
-import java.util.List;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.atomic.AtomicLong;
 
 public class BitMapWithClockSketchCacheManager implements ShadowCache {
-  protected static int mClockWidth;
+  protected static int mNumBuckets;
   protected static int mBitsPerSize;
   protected static int mBitsPerClock;
   protected int mBitsPerScope;
   protected long mWindowSize;
-  protected long mHashNum;
-  protected int lastUpdateIdx;
-  protected int updateLen;
   protected Funnel<PageId> mFunnel;
-
-
-  protected List<HashFunction> hashFuncs = new LinkedList<HashFunction>();
-  protected int[] clock;
-  protected int[] traceSize;
+  protected HashFunction mHashFunction;
+  protected int[] clockTable;
+  protected int[] sizeTable;
   // TODO - SCOPE 存储重复，能不能从某一个位置开始都存某个scope的pageid
-  protected CacheScope[] scopes;
-  private long workSetSize;
-  private long missNum;
-  private long hitSize;
-  private long queryNum;
-  private long querySize;
-
-
+  protected long[] scopeTable; // stores the fingerprint of scope
+  protected int mSizeMask;
+  protected long mScopeMask;
+  private final AtomicLong mShadowCachePageRead = new AtomicLong(0);
+  private final AtomicLong mShadowCachePageHit = new AtomicLong(0);
+  private final AtomicLong mShadowCacheByteRead = new AtomicLong(0);
+  private final AtomicLong mShadowCacheByteHit = new AtomicLong(0);
+  private final AtomicLong mBucketsSet = new AtomicLong(0);
+  private final AtomicLong mTotalSize = new AtomicLong(0);
+  private final ScheduledExecutorService mScheduler = Executors.newScheduledThreadPool(0);
 
   public BitMapWithClockSketchCacheManager(ShadowCacheParameters parameters) {
     mBitsPerClock = parameters.mClockBits;
@@ -55,144 +53,153 @@ public class BitMapWithClockSketchCacheManager implements ShadowCache {
     mWindowSize = parameters.mWindowSize;
     mBitsPerScope = parameters.mScopeBits;
     mFunnel = PageIdFunnel.FUNNEL;
-    mHashNum = 1;
     long memoryInBits = FormatUtils.parseSpaceSize(parameters.mMemoryBudget) * 8;
-    mClockWidth = (int) (memoryInBits / (parameters.mClockBits + parameters.mSizeBits + parameters.mScopeBits));
-    for (int i = 0; i < mHashNum; i++) {
-      hashFuncs.add(Hashing.murmur3_32(i + 10086));
-    }
-    updateLen = (int)(((1 << mBitsPerClock) - 2) * mClockWidth / mWindowSize);
-    clock = new int[mClockWidth];
-    traceSize = new int[mClockWidth];
-    scopes = new CacheScope[mClockWidth];
+    mNumBuckets = (int) (memoryInBits
+        / (parameters.mClockBits + parameters.mSizeBits + parameters.mScopeBits));
+    mHashFunction = Hashing.murmur3_32(32713);
+    clockTable = new int[mNumBuckets];
+    sizeTable = new int[mNumBuckets];
+    scopeTable = new long[mNumBuckets];
+    mSizeMask = (1 << mBitsPerSize) - 1;
+    mScopeMask = (1 << mBitsPerScope) - 1;
+    long windowMs = parameters.mWindowSize;
+    long agingPeriod = windowMs >> mBitsPerClock;
+    mScheduler.scheduleAtFixedRate(this::aging, agingPeriod, agingPeriod, MILLISECONDS);
   }
 
   @Override
   public boolean put(PageId pageId, int size, CacheScope scope) {
-    queryNum++;
-    querySize+=size;
-    for (HashFunction hashFunc : hashFuncs) {
-      int pos = Math.abs(hashFunc.newHasher().putObject(pageId, mFunnel).hash().asInt() % mClockWidth);
-      if (clock[pos] == 0) {
-        missNum++;
-        traceSize[pos] = size;
-        scopes[pos] = scope;
-        workSetSize += traceSize[pos];
-      }else{
-        hitSize+=size;
-      }
-      clock[pos] = (1 << mBitsPerClock) - 1;
+    int pos = bucketIndex(pageId, mHashFunction);
+    long scopefp = encodeScope(scope);
+    if (clockTable[pos] == 0) {
+      sizeTable[pos] = size & mSizeMask;
+      scopeTable[pos] = scopefp & mScopeMask;
+      clockTable[pos] = (1 << mBitsPerClock) - 1;
+      mBucketsSet.incrementAndGet();
+      mTotalSize.addAndGet(size);
+    } else if (scopeTable[pos] == scopefp) { // hit
+      clockTable[pos] = (1 << mBitsPerClock) - 1;
+    } else { // collision
+      // no-op
     }
     return true;
   }
 
   @Override
   public int get(PageId pageId, int bytesToRead, CacheScope scope) {
-    for (HashFunction hashFunc : hashFuncs) {
-      int pos =
-              Math.abs(hashFunc.newHasher().putObject(pageId, mFunnel).hash().asInt() % mClockWidth);
-      if (clock[pos] == 0) {
-        return 0;
-      }
+    mShadowCachePageRead.incrementAndGet();
+    mShadowCacheByteRead.addAndGet(bytesToRead);
+    long scopefp = encodeScope(scope);
+    int pos = bucketIndex(pageId, mHashFunction);
+    if (clockTable[pos] == 0 || scopefp != scopeTable[pos]) {
+      return 0;
     }
-    return 1;
+    mShadowCachePageHit.incrementAndGet();
+    mShadowCacheByteHit.addAndGet(bytesToRead);
+    return bytesToRead;
   }
 
   @Override
   public boolean delete(PageId pageId) {
-    for (HashFunction hashFunc : hashFuncs) {
-      int pos =
-              Math.abs(hashFunc.newHasher().putObject(pageId, mFunnel).hash().asInt() % mClockWidth);
-      clock[pos] =  0;
-    }
+    int pos = bucketIndex(pageId, mHashFunction);
+    clockTable[pos] = 0;
     return false;
   }
 
 
   public void aging() {
-    for (int i = 0; i < mClockWidth; i++) {
-      if(clock[i]>0){
-        clock[i] -= 1;
-      }
-      if (clock[i] == 0) {
-        workSetSize -= traceSize[i];
-        traceSize[i] = 0;
+    for (int i = 0; i < mNumBuckets; i++) {
+      if (clockTable[i] > 1) {
+        clockTable[i] -= 1;
+      } else if (clockTable[i] == 1) {
+        mBucketsSet.addAndGet(-1);
+        mTotalSize.addAndGet(-sizeTable[i]);
+        clockTable[i] = 0;
+        sizeTable[i] = 0;
+        scopeTable[i] = 0;
       }
     }
   }
 
   @Override
   public void updateWorkingSetSize() {
-    return;
+    // no-op
   }
 
   @Override
   public void stopUpdate() {
-
+    mScheduler.shutdown();
   }
 
   @Override
   public void updateTimestamp(long increment) {
-
+    // no-op
   }
 
   @Override
   public long getShadowCachePages() {
-    double u = 0;
-    for (int i = 0; i < mClockWidth; ++i)
-      u += clock[i] == 0 ? 1 : 0;
-    if(u==.0){
-      return 0;
-    }
-    double pages = -mClockWidth / (double) mHashNum * Math.log(u / mClockWidth);
-    return (long)(pages); // 源码里并没有/hashNum，原作者也没考虑
+    long zeros = mNumBuckets - mBucketsSet.get();
+    double pages = -mNumBuckets * Math.log(zeros / (double) mNumBuckets);
+    return (long) (pages); // 源码里并没有/hashNum，原作者也没考虑
   }
 
   @Override
   public long getShadowCachePages(CacheScope scope) {
-    int scopeNum = 0;
-    for(int i=0; i<mClockWidth; ++i){
-      if(scopes[i].equals(scope)){
-        scopeNum++;
+    long ones = 0;
+    long scopefp = encodeScope(scope);
+    for (int i = 0; i < mNumBuckets; ++i) {
+      if (clockTable[i] > 0 && scopefp == scopeTable[i]) {
+        ones++;
       }
     }
-    return scopeNum;
+    long zeros = mNumBuckets - ones;
+    double pages = -mNumBuckets * Math.log(zeros / (double) mNumBuckets);
+    return (long) (pages); // 源码里并没有/hashNum，原作者也没考虑
   }
 
   @Override
   public long getShadowCacheBytes() {
-    return workSetSize;
+    long zeros = mNumBuckets - mBucketsSet.get();
+    double pages = -mNumBuckets * Math.log(zeros / (double) mNumBuckets);
+    double avePageSize = mTotalSize.get() / (double) mBucketsSet.get();
+    return (long) (pages * avePageSize);
   }
 
   @Override
   public long getShadowCacheBytes(CacheScope scope) {
-    long scopeSize = 0;
-    for(int i=0;i<mClockWidth;i++){
-      if(scopes[i].equals(scope)){
-        scopeSize+=traceSize[i];
+    long ones = 0;
+    double totalSize = 0.;
+    long scopefp = encodeScope(scope);
+    for (int i = 0; i < mNumBuckets; ++i) {
+      if (clockTable[i] > 0 && scopeTable[i] == scopefp) {
+        ones++;
+        totalSize += sizeTable[i];
       }
     }
-    return scopeSize;
+    long zeros = mNumBuckets - ones;
+    double pages = -mNumBuckets * Math.log(zeros / (double) mNumBuckets);
+    double avePageSize = totalSize / (double) ones;
+    return (long) (pages * avePageSize);
   }
 
   @Override
   public long getShadowCachePageRead() {
-    return queryNum;
+    return mShadowCachePageRead.get();
   }
 
   @Override
   public long getShadowCachePageHit() {
-    return queryNum-missNum;
+    return mShadowCachePageHit.get();
   }
 
   @Override
   public long getShadowCacheByteRead() {
-    return querySize;
+    return mShadowCacheByteRead.get();
   }
 
   @Override
   public long getShadowCacheByteHit() {
-    return hitSize;
+    return mShadowCacheByteHit.get();
   }
 
   @Override
@@ -202,54 +209,25 @@ public class BitMapWithClockSketchCacheManager implements ShadowCache {
 
   @Override
   public long getSpaceBits() {
-    return mClockWidth*(mBitsPerScope+mBitsPerClock+mBitsPerSize);
+    return mNumBuckets * (mBitsPerScope + mBitsPerClock + mBitsPerSize);
   }
 
   @Override
   public String getSummary() {
-    return "bitmapWithClockSketch\nbitsPerClock: " + mBitsPerClock
-            + "\nbitsPerSize: " + mBitsPerSize + "\nbitsPerScope: " + mBitsPerScope + "\nSizeInMB: "
-            + (mClockWidth * mBitsPerClock / 8.0 / Constants.MB
-            + mClockWidth * mBitsPerSize / 8.0 / Constants.MB
-            + mClockWidth * mBitsPerScope / 8.0 / Constants.MB);
+    return "bitmapWithClockSketch\bnumBuckets: " + mNumBuckets + "\nbitsPerClock: "
+            + mBitsPerClock + "\nbitsPerSize: "
+        + mBitsPerSize + "\nbitsPerScope: " + mBitsPerScope + "\nSizeInMB: "
+        + (mNumBuckets * mBitsPerClock / 8.0 / Constants.MB
+            + mNumBuckets * mBitsPerSize / 8.0 / Constants.MB
+            + mNumBuckets * mBitsPerScope / 8.0 / Constants.MB);
   }
 
-  public void updateClock(int insertTimesPerUpdate) {
-    int temp = updateLen * insertTimesPerUpdate;
-    int subAll = temp / mClockWidth;
-    int len = temp % mClockWidth;
-
-    int beg = lastUpdateIdx;
-    int end = min(mClockWidth, lastUpdateIdx + len);
-    // 处理subAll圈
-    updateRange(beg, end, subAll + 1);
-    if (end - beg < len) {
-      end = len - (end - beg);
-      beg = 0;
-      updateRange(beg, end, subAll + 1);
-    }
-    // 处理subAll圈
-    // 按圈处理 比for要快
-    if (end > lastUpdateIdx) {
-      updateRange(end, mClockWidth, subAll);
-      updateRange(0, lastUpdateIdx, subAll);
-    } else {
-      updateRange(end, lastUpdateIdx, subAll);
-    }
-    lastUpdateIdx = end;
+  private int bucketIndex(PageId pageId, HashFunction hashFunc) {
+    return Math.abs(hashFunc.newHasher().putObject(pageId, mFunnel).hash().asInt() % mNumBuckets);
   }
 
-  public void updateRange(int beg, int end, int val) {
-    while (beg < end) {
-      if (clock[beg] <= val) {
-        clock[beg] = 0;
-        workSetSize -= traceSize[beg];
-        traceSize[beg] = 0;
-      } else {
-        clock[beg] -= val; // 忽然想到老化
-      }
-      beg++;
-    }
+  private long encodeScope(CacheScope scope) {
+    return scope.hashCode() & mScopeMask;
   }
 
 }
