@@ -77,7 +77,7 @@ public class BitMapWithClockSketchCacheManager implements ShadowCache {
       clockTable[pos] = (1 << mBitsPerClock) - 1;
       mBucketsSet.incrementAndGet();
       mTotalSize.addAndGet(size);
-    } else if (scopeTable[pos] == scopefp) { // hit
+    } else if (mBitsPerScope > 0 && scopeTable[pos] == scopefp) { // hit
       clockTable[pos] = (1 << mBitsPerClock) - 1;
     } else { // collision
       // no-op
@@ -91,7 +91,7 @@ public class BitMapWithClockSketchCacheManager implements ShadowCache {
     mShadowCacheByteRead.addAndGet(bytesToRead);
     long scopefp = encodeScope(scope);
     int pos = bucketIndex(pageId, mHashFunction);
-    if (clockTable[pos] == 0 || scopefp != scopeTable[pos]) {
+    if (clockTable[pos] == 0 || (mBitsPerScope > 0 && scopefp != scopeTable[pos])) {
       return 0;
     }
     mShadowCachePageHit.incrementAndGet();
