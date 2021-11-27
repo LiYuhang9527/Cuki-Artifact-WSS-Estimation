@@ -11,6 +11,10 @@
 
 package alluxio.client.file.cache;
 
+import alluxio.client.file.cache.cuckoofilter.SlidingWindowType;
+import alluxio.client.file.cache.cuckoofilter.size.SizeEncodeType;
+
+import com.beust.jcommander.IStringConverter;
 import com.beust.jcommander.Parameter;
 
 public class ShadowCacheParameters {
@@ -19,6 +23,9 @@ public class ShadowCacheParameters {
 
   @Parameter(names = "--memory")
   public String mMemoryBudget = "1MB";
+
+  @Parameter(names = "--window_type", converter = SlidingWindowTypeConverter.class)
+  public SlidingWindowType mSlidingWindowType = SlidingWindowType.COUNT_BASED;
 
   @Parameter(names = "--window_size")
   public long mWindowSize = 65536;
@@ -39,13 +46,39 @@ public class ShadowCacheParameters {
   @Parameter(names = "--opportunistic_aging", arity = 1)
   public boolean mOpportunisticAging = true;
 
+  @Parameter(names = "--tag_bits")
+  public int mTagBits = 8;
+
+  @Parameter(names = "--size_encode", converter = SizeEncodeTypeConverter.class)
+  public SizeEncodeType mSizeEncodeType = SizeEncodeType.NONE;
+
+  @Parameter(names = "--num_size_bucket_bits")
+  public int mNumSizeBucketBits = 8;
+
+  @Parameter(names = "--size_bucket_bits")
+  public int mSizeBucketBits = 12;
+
   // multiple bloom filter specified parameters
   @Parameter(names = "--num_blooms")
   public int mNumBloom = 4;
 
   // String key + page index
-  @Parameter(names  ="--page_bits")
-  public int mPageBits = 8*16 + 64;
+  @Parameter(names = "--page_bits")
+  public int mPageBits = 8 * 16 + 64;
 
   public int mAgeLevels = 0;
+
+  static class SlidingWindowTypeConverter implements IStringConverter<SlidingWindowType> {
+    @Override
+    public SlidingWindowType convert(String s) {
+      return SlidingWindowType.valueOf(s);
+    }
+  }
+
+  static class SizeEncodeTypeConverter implements IStringConverter<SizeEncodeType> {
+    @Override
+    public SizeEncodeType convert(String s) {
+      return SizeEncodeType.valueOf(s);
+    }
+  }
 }

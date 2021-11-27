@@ -1,3 +1,14 @@
+/*
+ * The Alluxio Open Foundation licenses this work under the Apache License, version 2.0
+ * (the "License"). You may not use this work except in compliance with the License, which is
+ * available at www.apache.org/licenses/LICENSE-2.0
+ *
+ * This software is distributed on an "AS IS" basis, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+ * either express or implied, as more fully set forth in the License.
+ *
+ * See the NOTICE file distributed with this work for information regarding copyright ownership.
+ */
+
 package alluxio.client.file.cache;
 
 import alluxio.Constants;
@@ -8,10 +19,10 @@ import java.util.HashMap;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 
-public class AccurateEstimationShadowCacheManager implements ShadowCache{
+public class AccurateEstimationShadowCacheManager implements ShadowCache {
   private final Lock lock;
   private final LRU itemLRU;
-  private final HashMap<PageId,ItemAttribute> itemToAttribute;
+  private final HashMap<PageId, ItemAttribute> itemToAttribute;
   private final HashMap<CacheScope, Integer> scopeToNumber;
   private final HashMap<CacheScope, Integer> scopeToSize;
 
@@ -28,19 +39,7 @@ public class AccurateEstimationShadowCacheManager implements ShadowCache{
   private long hitSize;
   private long timestampNow;
 
-  private static class ItemAttribute{
-    int size;
-    CacheScope scope;
-    long timeStamp;
-
-    public ItemAttribute(int size, CacheScope scope, long timeStamp) {
-      this.size = size;
-      this.scope = scope;
-      this.timeStamp = timeStamp;
-    }
-  }
-
-  public AccurateEstimationShadowCacheManager(ShadowCacheParameters params){
+  public AccurateEstimationShadowCacheManager(ShadowCacheParameters params) {
     this.windowSize = params.mWindowSize;
     this.lock = new ReentrantLock();
     this.itemLRU = new LRU();
@@ -66,19 +65,19 @@ public class AccurateEstimationShadowCacheManager implements ShadowCache{
     lock.lock();
     readCount++;
     readSize += size;
-    if(pageId == null){
+    if (pageId == null) {
       return false;
     }
     ItemAttribute attribute = itemToAttribute.get(pageId);
     if (attribute == null) {
-      itemToAttribute.put(pageId, new ItemAttribute(size,scope,timestampNow));
+      itemToAttribute.put(pageId, new ItemAttribute(size, scope, timestampNow));
       success = itemLRU.put(pageId);
       scopeToSize.put(scope, scopeToSize.getOrDefault(scope, 0) + size);
       scopeToNumber.put(scope, scopeToNumber.getOrDefault(scope, 0) + 1);
       realSize += size;
-    }else{
+    } else {
       hitCount++;
-      hitSize+=size;
+      hitSize += size;
       attribute.timeStamp = timestampNow;
       success = itemLRU.put(pageId);
     }
@@ -95,31 +94,31 @@ public class AccurateEstimationShadowCacheManager implements ShadowCache{
   @Override
   public boolean delete(PageId pageId) {
     boolean b1 = itemLRU.remove(pageId);
-    boolean b2 = itemToAttribute.remove(pageId)!=null;
-    return b1&&b2;
+    boolean b2 = itemToAttribute.remove(pageId) != null;
+    return b1 && b2;
   }
 
-
-  public void aging(){
+  public void aging() {
     long oldTimestamp = timestampNow - windowSize;
-    if(oldTimestamp>0){
-      while(true){
+    if (oldTimestamp > 0) {
+      while (true) {
         PageId item = itemLRU.peek();
         ItemAttribute itemAttribute = itemToAttribute.get(item);
-        if(itemAttribute.timeStamp < oldTimestamp){
+        if (itemAttribute.timeStamp < oldTimestamp) {
           itemLRU.poll();
           realSize -= itemAttribute.size;
-          scopeToNumber.put(itemAttribute.scope,scopeToNumber.getOrDefault(itemAttribute.scope,0)-1);
-          scopeToSize.put(itemAttribute.scope,scopeToSize.getOrDefault(itemAttribute.scope,0)-itemAttribute.size);
+          scopeToNumber.put(itemAttribute.scope,
+              scopeToNumber.getOrDefault(itemAttribute.scope, 0) - 1);
+          scopeToSize.put(itemAttribute.scope,
+              scopeToSize.getOrDefault(itemAttribute.scope, 0) - itemAttribute.size);
           itemToAttribute.remove(item);
-        }else{
+        } else {
           break;
         }
       }
     }
     realNumber = itemLRU.getSize();
   }
-
 
   @Override
   public void updateWorkingSetSize() {
@@ -184,16 +183,29 @@ public class AccurateEstimationShadowCacheManager implements ShadowCache{
   @Override
   public long getSpaceBits() {
     long scopeNum = scopeToNumber.size();
-    long space = realNumber*(bitsPerItem+bitsPerTimestamp+bitsPerScope+bitsPerTimestamp);
-    space+=scopeNum*(bitsPerScope*2+32+bitsPerSize);
+    long space = realNumber * (bitsPerItem + bitsPerTimestamp + bitsPerScope + bitsPerTimestamp);
+    space += scopeNum * (bitsPerScope * 2 + 32 + bitsPerSize);
     return space;
   }
 
   @Override
   public String getSummary() {
-    return "\nbitsPerItem: " + bitsPerItem +  "\nbitsPerSize: " + bitsPerSize
-        + "\nbitsPerScope: " + bitsPerScope + "\nSizeInMB: "
-        + (windowSize*(bitsPerItem+bitsPerTimestamp+bitsPerScope+bitsPerTimestamp) / 8.0 / Constants.MB
-        + windowSize*(bitsPerScope*2+32+bitsPerSize) / 8.0 / Constants.MB);
+    return "\nbitsPerItem: " + bitsPerItem + "\nbitsPerSize: " + bitsPerSize + "\nbitsPerScope: "
+        + bitsPerScope + "\nSizeInMB: "
+        + (windowSize * (bitsPerItem + bitsPerTimestamp + bitsPerScope + bitsPerTimestamp) / 8.0
+            / Constants.MB
+            + windowSize * (bitsPerScope * 2 + 32 + bitsPerSize) / 8.0 / Constants.MB);
+  }
+
+  private static class ItemAttribute {
+    int size;
+    CacheScope scope;
+    long timeStamp;
+
+    public ItemAttribute(int size, CacheScope scope, long timeStamp) {
+      this.size = size;
+      this.scope = scope;
+      this.timeStamp = timeStamp;
+    }
   }
 }

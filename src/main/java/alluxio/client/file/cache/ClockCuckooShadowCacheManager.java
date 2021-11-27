@@ -15,9 +15,7 @@ import static java.util.concurrent.TimeUnit.MILLISECONDS;
 
 import alluxio.client.file.cache.cuckoofilter.ClockCuckooFilter;
 import alluxio.client.file.cache.cuckoofilter.ConcurrentClockCuckooFilter;
-import alluxio.client.file.cache.cuckoofilter.SlidingWindowType;
 import alluxio.client.quota.CacheScope;
-import alluxio.util.FormatUtils;
 
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -45,20 +43,9 @@ public class ClockCuckooShadowCacheManager implements ShadowCache {
    * @param conf the alluxio configuration
    */
   public ClockCuckooShadowCacheManager(ShadowCacheParameters conf) {
-    SlidingWindowType slidingWindowType = SlidingWindowType.NONE;
-    if (conf.mOpportunisticAging) {
-      slidingWindowType = SlidingWindowType.COUNT_BASED;
-    }
     long windowMs = conf.mWindowSize;
-    long budgetInBits = FormatUtils.parseSpaceSize(conf.mMemoryBudget) * 8;
     int bitsPerClock = conf.mClockBits;
-    int bitsPerSize = conf.mSizeBits;
-    int bitsPerScope = conf.mScopeBits;
-    long bitsPerSlot = BITS_PER_TAG + bitsPerClock + bitsPerSize + bitsPerScope;
-    long totalBuckets = budgetInBits / bitsPerSlot;
-    long expectedInsertions = Long.highestOneBit(totalBuckets);
-    mFilter = ConcurrentClockCuckooFilter.create(PageIdFunnel.FUNNEL, expectedInsertions,
-        bitsPerClock, bitsPerSize, bitsPerScope, slidingWindowType, windowMs);
+    mFilter = ConcurrentClockCuckooFilter.create(PageIdFunnel.FUNNEL, conf);
     long agingPeriod = windowMs >> bitsPerClock;
     mScheduler.scheduleAtFixedRate(this::aging, agingPeriod, agingPeriod, MILLISECONDS);
   }

@@ -30,7 +30,7 @@ public interface ShadowCache {
         parameters.mAgeLevels = (1 << parameters.mClockBits) - 2;
         return new BitMapWithClockSketchCacheManager(parameters);
       case BMS:
-        parameters.mAgeLevels = (int)parameters.mWindowSize;
+        parameters.mAgeLevels = (int) parameters.mWindowSize;
         return new BitMapWithSlidingSketchShadowCacheManager(parameters);
       case CCF:
       default:

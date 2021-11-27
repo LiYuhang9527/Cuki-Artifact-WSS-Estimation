@@ -53,7 +53,7 @@ public class BitMapWithSlidingSketchShadowCacheManager implements ShadowCache {
     mBitsPerScope = params.mScopeBits;
     mHashNum = 1;
     long memoryInBits = FormatUtils.parseSpaceSize(params.mMemoryBudget) * 8;
-    mClockWidth = (int)(memoryInBits / ((mBitsPerSize+params.mScopeBits) * 2));
+    mClockWidth = (int) (memoryInBits / ((mBitsPerSize + params.mScopeBits) * 2));
     for (int i = 0; i < mHashNum; i++) {
       hashFuncs.add(Hashing.murmur3_32(i + 10086));
     }
@@ -67,35 +67,38 @@ public class BitMapWithSlidingSketchShadowCacheManager implements ShadowCache {
   @Override
   public boolean put(PageId pageId, int size, CacheScope scope) {
     queryNum++;
-    querySize+=size;
+    querySize += size;
     for (HashFunction hashFunc : hashFuncs) {
-      int pos = Math.abs(hashFunc.newHasher().putObject(pageId, mFunnel).hash().asInt() % mClockWidth);
-      if(traceSizeNew[pos]!=0){
+      int pos =
+          Math.abs(hashFunc.newHasher().putObject(pageId, mFunnel).hash().asInt() % mClockWidth);
+      if (traceSizeNew[pos] != 0) {
         hitNum++;
-        hitSize+=size;
+        hitSize += size;
       }
       traceSizeNew[pos] = size;
       traceScopeNew[pos] = scope;
-      //traceSizeOld[pos] = 0;
-      //traceScopeOld[pos] = null;
+      // traceSizeOld[pos] = 0;
+      // traceScopeOld[pos] = null;
     }
     return true;
   }
+
   @Override
   public int get(PageId pageId, int bytesToRead, CacheScope scope) {
     queryNum++;
     boolean found = true;
     for (HashFunction hashFunc : hashFuncs) {
-      int pos = Math.abs(hashFunc.newHasher().putObject(pageId, mFunnel).hash().asInt() % mClockWidth);
-      if(traceSizeNew[pos]==0&&traceSizeOld[pos]==0){
+      int pos =
+          Math.abs(hashFunc.newHasher().putObject(pageId, mFunnel).hash().asInt() % mClockWidth);
+      if (traceSizeNew[pos] == 0 && traceSizeOld[pos] == 0) {
         found = false;
         break;
       }
     }
-    if(found){
+    if (found) {
       hitNum++;
       return 1;
-    }else{
+    } else {
       return 0;
     }
   }
@@ -107,8 +110,8 @@ public class BitMapWithSlidingSketchShadowCacheManager implements ShadowCache {
 
   public void updateClock(int insertTimesPerUpdate) {
     long temp = updateLen * insertTimesPerUpdate;
-    int subAll = (int)(temp / mClockWidth);
-    int len = (int)(temp % mClockWidth);
+    int subAll = (int) (temp / mClockWidth);
+    int len = (int) (temp % mClockWidth);
 
     int beg = lastUpdateIdx;
     int end = min(mClockWidth, lastUpdateIdx + len);
@@ -152,7 +155,8 @@ public class BitMapWithSlidingSketchShadowCacheManager implements ShadowCache {
   @Override
   public boolean delete(PageId pageId) {
     for (HashFunction hashFunc : hashFuncs) {
-      int pos = Math.abs(hashFunc.newHasher().putObject(pageId, mFunnel).hash().asInt() % mClockWidth);
+      int pos =
+          Math.abs(hashFunc.newHasher().putObject(pageId, mFunnel).hash().asInt() % mClockWidth);
       traceSizeNew[pos] = 0;
       traceScopeNew[pos] = null;
       traceSizeOld[pos] = 0;
@@ -163,24 +167,24 @@ public class BitMapWithSlidingSketchShadowCacheManager implements ShadowCache {
   }
 
   @Override
-  public void updateWorkingSetSize() { }
+  public void updateWorkingSetSize() {}
 
   @Override
-  public void stopUpdate() { }
+  public void stopUpdate() {}
 
   @Override
-  public void updateTimestamp(long increment) { }
+  public void updateTimestamp(long increment) {}
 
   @Override
   public long getShadowCachePages() {
     double u = 0;
-    for (int i = 0; i < mClockWidth; ++i){
+    for (int i = 0; i < mClockWidth; ++i) {
       if (traceSizeOld[i] == 0 && traceSizeNew[i] == 0) {
         u++;
       }
     }
 
-    realNum = (long)(-mClockWidth / (double) mHashNum * Math.log(u / mClockWidth));
+    realNum = (long) (-mClockWidth / (double) mHashNum * Math.log(u / mClockWidth));
     return realNum;// 源码里并没有/hashNum，原作者也没考虑
   }
 
@@ -233,14 +237,13 @@ public class BitMapWithSlidingSketchShadowCacheManager implements ShadowCache {
 
   @Override
   public long getSpaceBits() {
-    return mClockWidth*(mBitsPerScope+mBitsPerSize)*2;
+    return mClockWidth * (mBitsPerScope + mBitsPerSize) * 2;
   }
 
   @Override
   public String getSummary() {
 
-    return "bitMapWithSliding: \nbitsPerSize: " + mBitsPerSize +  "\nbitsPerScope: " + mBitsPerScope
-            + "\nSizeInMB: "
-            + mClockWidth*(mBitsPerScope+mBitsPerSize)*2 / 8.0 / Constants.MB;
+    return "bitMapWithSliding: \nbitsPerSize: " + mBitsPerSize + "\nbitsPerScope: " + mBitsPerScope
+        + "\nSizeInMB: " + mClockWidth * (mBitsPerScope + mBitsPerSize) * 2 / 8.0 / Constants.MB;
   }
 }

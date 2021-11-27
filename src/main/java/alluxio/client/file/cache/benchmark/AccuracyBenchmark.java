@@ -73,10 +73,10 @@ public class AccuracyBenchmark implements Benchmark {
     double byteARE = 0.0;
     long errCnt = 0;
     long agingPeriod = mBenchmarkParameters.mWindowSize / mBenchmarkParameters.mAgeLevels;
-    if(agingPeriod <= 0){
+    if (agingPeriod <= 0) {
       agingPeriod = 1;
     }
-    System.out.printf("agingPeriod:%d\n",agingPeriod);
+    System.out.printf("agingPeriod:%d\n", agingPeriod);
 
 
     System.out.println(mShadowCache.getSummary());

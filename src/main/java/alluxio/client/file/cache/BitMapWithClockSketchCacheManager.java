@@ -29,6 +29,13 @@ public class BitMapWithClockSketchCacheManager implements ShadowCache {
   protected static int mNumBuckets;
   protected static int mBitsPerSize;
   protected static int mBitsPerClock;
+  private final AtomicLong mShadowCachePageRead = new AtomicLong(0);
+  private final AtomicLong mShadowCachePageHit = new AtomicLong(0);
+  private final AtomicLong mShadowCacheByteRead = new AtomicLong(0);
+  private final AtomicLong mShadowCacheByteHit = new AtomicLong(0);
+  private final AtomicLong mBucketsSet = new AtomicLong(0);
+  private final AtomicLong mTotalSize = new AtomicLong(0);
+  private final ScheduledExecutorService mScheduler = Executors.newScheduledThreadPool(0);
   protected int mBitsPerScope;
   protected long mWindowSize;
   protected Funnel<PageId> mFunnel;
@@ -39,13 +46,6 @@ public class BitMapWithClockSketchCacheManager implements ShadowCache {
   protected long[] scopeTable; // stores the fingerprint of scope
   protected int mSizeMask;
   protected long mScopeMask;
-  private final AtomicLong mShadowCachePageRead = new AtomicLong(0);
-  private final AtomicLong mShadowCachePageHit = new AtomicLong(0);
-  private final AtomicLong mShadowCacheByteRead = new AtomicLong(0);
-  private final AtomicLong mShadowCacheByteHit = new AtomicLong(0);
-  private final AtomicLong mBucketsSet = new AtomicLong(0);
-  private final AtomicLong mTotalSize = new AtomicLong(0);
-  private final ScheduledExecutorService mScheduler = Executors.newScheduledThreadPool(0);
 
   public BitMapWithClockSketchCacheManager(ShadowCacheParameters parameters) {
     mBitsPerClock = parameters.mClockBits;
@@ -214,9 +214,8 @@ public class BitMapWithClockSketchCacheManager implements ShadowCache {
 
   @Override
   public String getSummary() {
-    return "bitmapWithClockSketch\bnumBuckets: " + mNumBuckets + "\nbitsPerClock: "
-            + mBitsPerClock + "\nbitsPerSize: "
-        + mBitsPerSize + "\nbitsPerScope: " + mBitsPerScope + "\nSizeInMB: "
+    return "bitmapWithClockSketch\bnumBuckets: " + mNumBuckets + "\nbitsPerClock: " + mBitsPerClock
+        + "\nbitsPerSize: " + mBitsPerSize + "\nbitsPerScope: " + mBitsPerScope + "\nSizeInMB: "
         + (mNumBuckets * mBitsPerClock / 8.0 / Constants.MB
             + mNumBuckets * mBitsPerSize / 8.0 / Constants.MB
             + mNumBuckets * mBitsPerScope / 8.0 / Constants.MB);

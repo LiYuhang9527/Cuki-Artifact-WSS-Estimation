@@ -12,9 +12,15 @@
 package alluxio.client.file.cache.cuckoofilter;
 
 import alluxio.Constants;
+import alluxio.client.file.cache.ShadowCacheParameters;
+import alluxio.client.file.cache.cuckoofilter.size.ISizeEncoder;
+import alluxio.client.file.cache.cuckoofilter.size.NoOpSizeEncoder;
+import alluxio.client.file.cache.cuckoofilter.size.SizeEncodeType;
+import alluxio.client.file.cache.cuckoofilter.size.SizeEncoder;
 import alluxio.client.quota.CacheScope;
 import alluxio.collections.BitSet;
 import alluxio.collections.BuiltinBitSet;
+import alluxio.util.FormatUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.hash.Funnel;
@@ -69,6 +75,7 @@ public class ConcurrentClockCuckooFilter<T> implements ClockCuckooFilter<T>, Ser
   private final Funnel<? super T> mFunnel;
   private final HashFunction mHashFunction;
   private final ScopeEncoder mScopeEncoder;
+  private final ISizeEncoder mSizeEncoder;
   private final SegmentedLock mLocks;
   private final int[] mSegmentedAgingPointers;
   // if count-based sliding window, windowSize is the number of operations;
@@ -116,6 +123,8 @@ public class ConcurrentClockCuckooFilter<T> implements ClockCuckooFilter<T>, Ser
     // note that the GLOBAL scope is the default scope and is always encoded to zero
     mScopeEncoder = new ScopeEncoder(mBitsPerScope);
     mScopeEncoder.encode(CacheScope.GLOBAL);
+    // init size encoder
+    mSizeEncoder = new NoOpSizeEncoder(mBitsPerSize);
     int maxNumScopes = (1 << mBitsPerScope);
     mScopeToNumber = new AtomicInteger[maxNumScopes];
     mScopeToSize = new AtomicLong[maxNumScopes];
@@ -126,6 +135,89 @@ public class ConcurrentClockCuckooFilter<T> implements ClockCuckooFilter<T>, Ser
     // init aging pointers for each lock
     mSegmentedAgingPointers = new int[mLocks.getNumLocks()];
     Arrays.fill(mSegmentedAgingPointers, 0);
+  }
+
+  private ConcurrentClockCuckooFilter(CuckooTable table, CuckooTable clockTable,
+      CuckooTable sizeTable, CuckooTable scopeTable, SlidingWindowType slidingWindowType,
+      long windowSize, ISizeEncoder sizeEncoder, Funnel<? super T> funnel, HashFunction hasher) {
+    mTable = table;
+    mNumBuckets = table.getNumBuckets();
+    mBitsPerTag = table.getBitsPerTag();
+    mClockTable = clockTable;
+    mBitsPerClock = clockTable.getBitsPerTag();
+    mSizeTable = sizeTable;
+    mBitsPerSize = sizeTable.getBitsPerTag();
+    mScopeTable = scopeTable;
+    mBitsPerScope = scopeTable.getBitsPerTag();
+    mMaxSize = (1 << mBitsPerSize);
+    mMaxAge = (1 << mBitsPerClock) - 1;
+    mSlidingWindowType = slidingWindowType;
+    mWindowSize = windowSize;
+    mFunnel = funnel;
+    mHashFunction = hasher;
+    mLocks = new SegmentedLock(Math.min(DEFAULT_NUM_LOCKS, mNumBuckets >> 1), mNumBuckets);
+    // init scope statistics
+    // note that the GLOBAL scope is the default scope and is always encoded to zero
+    mScopeEncoder = new ScopeEncoder(mBitsPerScope);
+    mScopeEncoder.encode(CacheScope.GLOBAL);
+    mSizeEncoder = sizeEncoder;
+    int maxNumScopes = (1 << mBitsPerScope);
+    mScopeToNumber = new AtomicInteger[maxNumScopes];
+    mScopeToSize = new AtomicLong[maxNumScopes];
+    for (int i = 0; i < maxNumScopes; i++) {
+      mScopeToNumber[i] = new AtomicInteger(0);
+      mScopeToSize[i] = new AtomicLong(0);
+    }
+    // init aging pointers for each lock
+    mSegmentedAgingPointers = new int[mLocks.getNumLocks()];
+    Arrays.fill(mSegmentedAgingPointers, 0);
+  }
+
+  public static <T> ConcurrentClockCuckooFilter<T> create(Funnel<? super T> funnel,
+      ShadowCacheParameters conf) {
+    // make expectedInsertions a power of 2
+    int bitsPerTag = conf.mTagBits;
+    long budgetInBits = FormatUtils.parseSpaceSize(conf.mMemoryBudget) * 8;
+    int bitsPerClock = conf.mClockBits;
+    int bitsPerSize = conf.mSizeBits;
+    int bitsPerScope = conf.mScopeBits;
+    long bitsPerSlot = bitsPerTag + bitsPerClock + bitsPerSize + bitsPerScope;
+    long totalBuckets = budgetInBits / bitsPerSlot / TAGS_PER_BUCKET;
+    long numBuckets = Long.highestOneBit(totalBuckets);
+    long numBits = numBuckets * TAGS_PER_BUCKET * bitsPerTag;
+    BitSet bits = new BuiltinBitSet((int) numBits);
+    CuckooTable table = new SimpleCuckooTable(bits, (int) numBuckets, TAGS_PER_BUCKET, bitsPerTag);
+
+    BitSet clockBits = new BuiltinBitSet((int) (numBuckets * TAGS_PER_BUCKET * bitsPerClock));
+    CuckooTable clockTable =
+        new SimpleCuckooTable(clockBits, (int) numBuckets, TAGS_PER_BUCKET, bitsPerClock);
+
+    BitSet sizeBits = new BuiltinBitSet((int) (numBuckets * TAGS_PER_BUCKET * bitsPerSize));
+    CuckooTable sizeTable =
+        new SimpleCuckooTable(sizeBits, (int) numBuckets, TAGS_PER_BUCKET, bitsPerSize);
+
+    // NOTE: scope may be empty
+    BitSet scopeBits = new BuiltinBitSet((int) (numBuckets * TAGS_PER_BUCKET * bitsPerScope));
+    CuckooTable scopeTable = (bitsPerScope == 0) ? new EmptyCuckooTable()
+        : new SimpleCuckooTable(scopeBits, (int) numBuckets, TAGS_PER_BUCKET, bitsPerScope);
+
+    // sliding window
+    SlidingWindowType slidingWindowType = SlidingWindowType.NONE;
+    if (conf.mOpportunisticAging) {
+      slidingWindowType = SlidingWindowType.COUNT_BASED;
+    }
+
+    // size encoding
+    ISizeEncoder sizeEncoder;
+    if (conf.mSizeEncodeType == SizeEncodeType.BUCKET) {
+      sizeEncoder =
+          new SizeEncoder(conf.mNumSizeBucketBits + conf.mSizeBucketBits, conf.mNumSizeBucketBits);
+    } else {
+      sizeEncoder = new NoOpSizeEncoder(conf.mNumSizeBucketBits + conf.mSizeBucketBits);
+    }
+
+    return new ConcurrentClockCuckooFilter<>(table, clockTable, sizeTable, scopeTable,
+        slidingWindowType, conf.mWindowSize, sizeEncoder, funnel, Hashing.murmur3_128());
   }
 
   /**
@@ -274,7 +366,7 @@ public class ConcurrentClockCuckooFilter<T> implements ClockCuckooFilter<T>, Ser
     int b1 = indexHash(hv);
     int b2 = altIndex(b1, tag);
     int scope = encodeScope(scopeInfo);
-    size = encodeSize(size);
+    // size = encodeSize(size);
     // Generally, we will hold write locks in two places:
     // 1) put/delete;
     // 2) cuckooPathSearch & cuckooPathMove.
@@ -290,11 +382,13 @@ public class ConcurrentClockCuckooFilter<T> implements ClockCuckooFilter<T>, Ser
       mTable.writeTag(pos.getBucketIndex(), pos.getSlotIndex(), tag);
       mClockTable.writeTag(pos.getBucketIndex(), pos.getSlotIndex(), mMaxAge);
       mScopeTable.writeTag(pos.getBucketIndex(), pos.getSlotIndex(), scope);
-      mSizeTable.writeTag(pos.getBucketIndex(), pos.getSlotIndex(), size);
+      mSizeEncoder.add(size);
+      int encodedSize = mSizeEncoder.encode(size);
+      mSizeTable.writeTag(pos.getBucketIndex(), pos.getSlotIndex(), encodedSize);
       // update statistics
       mNumItems.incrementAndGet();
-      mTotalBytes.addAndGet(size);
-      updateScopeStatistics(scope, 1, size);
+      mTotalBytes.addAndGet(encodedSize);
+      updateScopeStatistics(scope, 1, encodedSize);
       mLocks.unlockWrite(b1, b2);
       return true;
     }
@@ -347,9 +441,8 @@ public class ConcurrentClockCuckooFilter<T> implements ClockCuckooFilter<T>, Ser
     if (pos.getStatus() == CuckooStatus.OK) {
       mNumItems.decrementAndGet();
       int scope = mScopeTable.readTag(pos.getBucketIndex(), pos.getSlotIndex());
-      int size = mSizeTable.readTag(pos.getBucketIndex(), pos.getSlotIndex());
-      size = decodeSize(size);
-      updateScopeStatistics(scope, -1, -size);
+      int encodedSize = mSizeTable.readTag(pos.getBucketIndex(), pos.getSlotIndex());
+      updateScopeStatistics(scope, -1, -mSizeEncoder.dec(encodedSize));
       // Clear Clock
       mClockTable.writeTag(pos.getBucketIndex(), pos.getSlotIndex(), 0);
       mLocks.unlockWrite(b1, b2);
@@ -419,7 +512,7 @@ public class ConcurrentClockCuckooFilter<T> implements ClockCuckooFilter<T>, Ser
 
   @Override
   public long approximateElementCount() {
-    return mNumItems.intValue();
+    return mSizeEncoder.getTotalCount();
   }
 
   @Override
@@ -429,7 +522,7 @@ public class ConcurrentClockCuckooFilter<T> implements ClockCuckooFilter<T>, Ser
 
   @Override
   public long approximateElementSize() {
-    return mTotalBytes.get();
+    return mSizeEncoder.getTotalSize();
   }
 
   @Override
@@ -959,10 +1052,10 @@ public class ConcurrentClockCuckooFilter<T> implements ClockCuckooFilter<T>, Ser
         mTable.writeTag(b, slotIndex, 0);
         mNumItems.decrementAndGet();
         int scope = mScopeTable.readTag(b, slotIndex);
-        int size = mSizeTable.readTag(b, slotIndex);
-        size = decodeSize(size);
-        updateScopeStatistics(scope, -1, -size);
-        mTotalBytes.addAndGet(-size);
+        int encodedSize = mSizeTable.readTag(b, slotIndex);
+        // encodedSize = decodeSize(encodedSize);
+        updateScopeStatistics(scope, -1, -mSizeEncoder.dec(encodedSize));
+        mTotalBytes.addAndGet(-encodedSize);
       }
     }
     return numCleaned;
