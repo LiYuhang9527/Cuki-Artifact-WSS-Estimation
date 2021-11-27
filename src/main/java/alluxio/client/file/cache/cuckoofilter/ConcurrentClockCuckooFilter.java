@@ -164,9 +164,10 @@ public class ConcurrentClockCuckooFilter<T> implements ClockCuckooFilter<T>, Ser
     CuckooTable sizeTable =
         new SimpleCuckooTable(sizeBits, (int) numBuckets, TAGS_PER_BUCKET, bitsPerSize);
 
+    // NOTE: scope may be empty
     BitSet scopeBits = new BuiltinBitSet((int) (numBuckets * TAGS_PER_BUCKET * bitsPerScope));
-    CuckooTable scopeTable =
-        new SimpleCuckooTable(scopeBits, (int) numBuckets, TAGS_PER_BUCKET, bitsPerScope);
+    CuckooTable scopeTable = (bitsPerScope == 0) ? new EmptyCuckooTable()
+        : new SimpleCuckooTable(scopeBits, (int) numBuckets, TAGS_PER_BUCKET, bitsPerScope);
     return new ConcurrentClockCuckooFilter<>(table, clockTable, sizeTable, scopeTable,
         slidingWindowType, windowSize, funnel, hasher);
   }
