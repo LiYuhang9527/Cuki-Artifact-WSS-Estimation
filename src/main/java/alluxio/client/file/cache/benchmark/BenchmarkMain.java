@@ -24,6 +24,7 @@ public class BenchmarkMain {
       System.exit(0);
     }
     Benchmark benchmark = Benchmark.create(mParameters);
+    System.out.println(mParameters.toString());
     benchmark.prepare();
     benchmark.run();
     benchmark.finish();

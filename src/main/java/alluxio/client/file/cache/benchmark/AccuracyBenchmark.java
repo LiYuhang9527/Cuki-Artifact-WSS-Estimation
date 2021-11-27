@@ -78,7 +78,6 @@ public class AccuracyBenchmark implements Benchmark {
     }
     System.out.printf("agingPeriod:%d\n", agingPeriod);
 
-
     System.out.println(mShadowCache.getSummary());
     mBenchmarkContext.mStream
         .println("#operation\tReal\tReal(byte)\tEst\tEst(byte)\tHR(page)\tHR(byte)");

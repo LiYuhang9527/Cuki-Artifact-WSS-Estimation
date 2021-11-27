@@ -54,6 +54,11 @@
             <artifactId>jcommander</artifactId>
             <version>1.78</version>
         </dependency>
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+            <version>${jackson.version}</version>
+        </dependency>
 
         <dependency>
             <groupId>junit</groupId>
@@ -78,6 +83,7 @@
     <properties>
         <metrics.version>4.1.11</metrics.version>
         <guava.version>29.0-jre</guava.version>
+        <jackson.version>2.11.1</jackson.version>
         <junit.version>4.13</junit.version>
         <testng.version>RELEASE</testng.version>
     </properties>

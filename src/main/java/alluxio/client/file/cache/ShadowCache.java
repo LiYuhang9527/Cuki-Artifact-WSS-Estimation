@@ -27,14 +27,14 @@ public interface ShadowCache {
         parameters.mAgeLevels = 16;
         return new AccurateEstimationShadowCacheManager(parameters);
       case BMC:
-        parameters.mAgeLevels = (1 << parameters.mClockBits) - 2;
+        parameters.mAgeLevels = (1 << parameters.mClockBits) - 1;
         return new BitMapWithClockSketchCacheManager(parameters);
       case BMS:
-        parameters.mAgeLevels = (int) parameters.mWindowSize;
+        parameters.mAgeLevels = 2;
         return new BitMapWithSlidingSketchShadowCacheManager(parameters);
       case CCF:
       default:
-        parameters.mAgeLevels = (1 << parameters.mClockBits); // TODO- -1 ?
+        parameters.mAgeLevels = (1 << parameters.mClockBits);
         return new ClockCuckooShadowCacheManager(parameters);
     }
   }

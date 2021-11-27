@@ -57,7 +57,7 @@ public class SizeEncoder implements ISizeEncoder {
   }
 
   protected int getSizeGroup(int size) {
-    return Math.min((size >> bitsPerBucket), numBuckets-1);
+    return Math.min((size >> bitsPerBucket), numBuckets - 1);
   }
 
   @Override

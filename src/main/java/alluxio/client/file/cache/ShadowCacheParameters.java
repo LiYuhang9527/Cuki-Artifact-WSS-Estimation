@@ -17,7 +17,7 @@ import alluxio.client.file.cache.cuckoofilter.size.SizeEncodeType;
 import com.beust.jcommander.IStringConverter;
 import com.beust.jcommander.Parameter;
 
-public class ShadowCacheParameters {
+public class ShadowCacheParameters extends Parameters {
   @Parameter(names = "--shadow_cache")
   public String mShadowCacheType = "CCF";
 
