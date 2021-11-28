@@ -74,6 +74,8 @@ public class AccuracyBenchmark implements Benchmark {
     long cacheDuration = 0;
     double numARE = 0.0;
     double byteARE = 0.0;
+    double pageHitARE = 0.0;
+    double byteHitARE = 0.0;
     long errCnt = 0;
     long agingPeriod = mBenchmarkParameters.mWindowSize / mBenchmarkParameters.mAgeLevels;
     if (agingPeriod <= 0) {
@@ -82,8 +84,9 @@ public class AccuracyBenchmark implements Benchmark {
     System.out.printf("agingPeriod:%d\n", agingPeriod);
 
     System.out.println(mShadowCache.getSummary());
-    mBenchmarkContext.mStream
-        .println("#operation\tReal\tReal(byte)\tEst\tEst(byte)\tHR(page)\tHR(byte)");
+    mBenchmarkContext.mStream.println(
+        "#operation\tReal\tReal(byte)\tEst\tEst(byte)\t" + "RealRead(Page)\tRealRead(Bytes)\t"
+            + "RealHit(Page)\tRealHit(Bytes)\t" + "EstHit(Page)\tEstHit(Bytes)");
 
     long startTick = System.currentTimeMillis();
     while (mDataset.hasNext() && opsCount < mBenchmarkParameters.mMaxEntries) {
@@ -116,17 +119,33 @@ public class AccuracyBenchmark implements Benchmark {
 
       // report
       if (opsCount % mBenchmarkParameters.mReportInterval == 0) {
+        mIdealShadowCache.updateWorkingSetSize();
         mShadowCache.updateWorkingSetSize();
-        long realNum = mDataset.getRealEntryNumber();
-        long realByte = mDataset.getRealEntrySize();
+        // long realNum = mDataset.getRealEntryNumber();
+        // long realByte = mDataset.getRealEntrySize();
+        long realNum = mIdealShadowCache.getShadowCachePages();
+        long realByte = mIdealShadowCache.getShadowCacheBytes();
+        long realCachePagesRead = mIdealShadowCache.getShadowCachePageRead();
+        long realCacheBytesRead = mIdealShadowCache.getShadowCacheByteRead();
+        long realCachePagesHit = mIdealShadowCache.getShadowCachePageHit();
+        long realCacheBytesHit = mIdealShadowCache.getShadowCacheByteHit();
         long estNum = mShadowCache.getShadowCachePages();
         long estByte = mShadowCache.getShadowCacheBytes();
-        mBenchmarkContext.mStream
-            .println(opsCount + "\t" + realNum + "\t" + realByte + "\t" + estNum + "\t" + estByte);
+        long estCachePagesRead = mShadowCache.getShadowCachePageRead();
+        long estCacheBytesRead = mShadowCache.getShadowCacheByteRead();
+        long estCachePagesHit = mShadowCache.getShadowCachePageHit();
+        long estCacheBytesHit = mShadowCache.getShadowCacheByteHit();
+        assert realCachePagesRead == estCachePagesRead;
+        assert realCacheBytesRead == estCacheBytesRead;
+        mBenchmarkContext.mStream.printf("%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\n", opsCount,
+            realNum, realByte, estNum, estByte, realCachePagesRead, realCacheBytesRead,
+            realCachePagesHit, realCacheBytesHit, estCachePagesHit, estCacheBytesHit);
         // accumulate error
         errCnt++;
         numARE += Math.abs(estNum / (double) realNum - 1.0);
         byteARE += Math.abs(estByte / (double) realByte - 1.0);
+        pageHitARE += Math.abs(realCachePagesHit / (double) estCachePagesHit - 1.0);
+        byteHitARE += Math.abs(realCacheBytesHit / (double) estCacheBytesHit - 1.0);
       }
     }
     long totalDuration = (System.currentTimeMillis() - startTick);
@@ -134,11 +153,12 @@ public class AccuracyBenchmark implements Benchmark {
     System.out.println("TotalTime(ms)\t" + totalDuration);
     System.out.println();
     System.out
-        .println("Put/Get(ms)\tAging(ms)\tAgingCnt\tops/sec\tops/sec(aging)\tARE(Num)\tARE(Byte)");
-    System.out.printf("%d\t%d\t%d\t%.2f\t%.2f\t%.4f%%\t%.4f%%\n", cacheDuration, agingDuration,
-        agingCount, opsCount * 1000 / (double) cacheDuration,
+        .println("Put/Get(ms)\tAging(ms)\tAgingCnt\tops/sec\tops/sec(aging)\tARE(Page)\tARE(Byte)"
+            + "\tARE(PageHit)\tARE(ByteHit)");
+    System.out.printf("%d\t%d\t%d\t%.2f\t%.2f\t%.4f%%\t%.4f%%\t%.4f%%\t%.4f%%\n", cacheDuration,
+        agingDuration, agingCount, opsCount * 1000 / (double) cacheDuration,
         opsCount * 1000 / (double) (cacheDuration + agingDuration), numARE * 100 / errCnt,
-        byteARE * 100 / errCnt);
+        byteARE * 100 / errCnt, pageHitARE * 100 / errCnt, byteHitARE * 100 / errCnt);
   }
 
   @Override
