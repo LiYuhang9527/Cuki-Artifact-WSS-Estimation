@@ -144,21 +144,37 @@ public class AccuracyBenchmark implements Benchmark {
         errCnt++;
         numARE += Math.abs(estNum / (double) realNum - 1.0);
         byteARE += Math.abs(estByte / (double) realByte - 1.0);
-        pageHitARE += Math.abs(realCachePagesHit / (double) estCachePagesHit - 1.0);
-        byteHitARE += Math.abs(realCacheBytesHit / (double) estCacheBytesHit - 1.0);
+        if (estCacheBytesHit != 0) {
+          pageHitARE += Math.abs(realCachePagesHit / (double) estCachePagesHit - 1.0);
+          byteHitARE += Math.abs(realCacheBytesHit / (double) estCacheBytesHit - 1.0);
+        }
       }
     }
+    long realCachePagesRead = mIdealShadowCache.getShadowCachePageRead();
+    long realCacheBytesRead = mIdealShadowCache.getShadowCacheByteRead();
     long totalDuration = (System.currentTimeMillis() - startTick);
+    long realCachePagesHit = mIdealShadowCache.getShadowCachePageHit();
+    long realCacheBytesHit = mIdealShadowCache.getShadowCacheByteHit();
+    long estCachePagesHit = mShadowCache.getShadowCachePageHit();
+    long estCacheBytesHit = mShadowCache.getShadowCacheByteHit();
+    double realPageHitRatio = realCachePagesHit / (double) realCachePagesRead;
+    double estPageHitRatio = estCachePagesHit / (double) realCachePagesRead;
+    double realByteHitRatio = realCacheBytesHit / (double) realCacheBytesRead;
+    double estByteHitRatio = estCacheBytesHit / (double) realCacheBytesRead;
+    double pageHitAREFinal = Math.abs(estPageHitRatio / realPageHitRatio - 1.0);
+    double byteHitAREFinal = Math.abs(estByteHitRatio / realByteHitRatio - 1.0);
+
     System.out.println();
     System.out.println("TotalTime(ms)\t" + totalDuration);
     System.out.println();
     System.out
         .println("Put/Get(ms)\tAging(ms)\tAgingCnt\tops/sec\tops/sec(aging)\tARE(Page)\tARE(Byte)"
-            + "\tARE(PageHit)\tARE(ByteHit)");
-    System.out.printf("%d\t%d\t%d\t%.2f\t%.2f\t%.4f%%\t%.4f%%\t%.4f%%\t%.4f%%\n", cacheDuration,
-        agingDuration, agingCount, opsCount * 1000 / (double) cacheDuration,
+            + "\tARE(PageHit)\tARE(ByteHit)\tFinalARE(PageHit)\tFinalARE(ByteHit)");
+    System.out.printf("%d\t%d\t%d\t%.2f\t%.2f\t%.4f%%\t%.4f%%\t%.4f%%\t%.4f%%\t%.4f%%\t%.4f%%\n",
+        cacheDuration, agingDuration, agingCount, opsCount * 1000 / (double) cacheDuration,
         opsCount * 1000 / (double) (cacheDuration + agingDuration), numARE * 100 / errCnt,
-        byteARE * 100 / errCnt, pageHitARE * 100 / errCnt, byteHitARE * 100 / errCnt);
+        byteARE * 100 / errCnt, pageHitARE * 100 / errCnt, byteHitARE * 100 / errCnt,
+        pageHitAREFinal * 100, byteHitAREFinal * 100);
   }
 
   @Override
