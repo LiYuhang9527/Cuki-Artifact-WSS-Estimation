@@ -71,14 +71,14 @@ public class ShadowCacheParameters extends Parameters {
   static class SlidingWindowTypeConverter implements IStringConverter<SlidingWindowType> {
     @Override
     public SlidingWindowType convert(String s) {
-      return SlidingWindowType.valueOf(s);
+      return SlidingWindowType.valueOf(s.toUpperCase());
     }
   }
 
   static class SizeEncodeTypeConverter implements IStringConverter<SizeEncodeType> {
     @Override
     public SizeEncodeType convert(String s) {
-      return SizeEncodeType.valueOf(s);
+      return SizeEncodeType.valueOf(s.toUpperCase());
     }
   }
 }
