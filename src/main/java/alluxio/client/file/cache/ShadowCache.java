@@ -23,9 +23,9 @@ public interface ShadowCache {
       case MBF:
         parameters.mAgeLevels = parameters.mNumBloom;
         return new MultipleBloomShadowCacheManager(parameters);
-      case AEF:
+      case IDEAL:
         parameters.mAgeLevels = 16;
-        return new AccurateEstimationShadowCacheManager(parameters);
+        return new IdealShadowCacheManager(parameters);
       case BMC:
         parameters.mAgeLevels = (1 << parameters.mClockBits) - 1;
         return new BitMapWithClockSketchCacheManager(parameters);
@@ -147,6 +147,6 @@ public interface ShadowCache {
   String getSummary();
 
   enum ShadowCacheType {
-    MBF, CCF, AEF, BMC, BMS
+    MBF, CCF, IDEAL, BMC, BMS
   }
 }

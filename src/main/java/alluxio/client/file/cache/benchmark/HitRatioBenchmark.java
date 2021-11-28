@@ -19,6 +19,8 @@ import alluxio.client.file.cache.dataset.GeneralDataset;
 import alluxio.client.file.cache.dataset.generator.RandomEntryGenerator;
 import alluxio.client.file.cache.dataset.generator.SequentialEntryGenerator;
 
+import java.util.concurrent.ThreadLocalRandom;
+
 public class HitRatioBenchmark implements Benchmark {
   private final BenchmarkContext mBenchmarkContext;
   private final BenchmarkParameters mBenchmarkParameters;
@@ -36,10 +38,9 @@ public class HitRatioBenchmark implements Benchmark {
         new SequentialEntryGenerator(mBenchmarkParameters.mMaxEntries, 1,
             (int) mBenchmarkParameters.mNumUniqueEntries + 1, 1, 1024, 1),
         (int) mBenchmarkParameters.mWindowSize);
-    mDataset2 = new GeneralDataset<>(
-        new RandomEntryGenerator(mBenchmarkParameters.mMaxEntries, 1,
-            (int) (mBenchmarkParameters.mNumUniqueEntries * 2) + 1, 1, 1024, 1, 32713),
-        (int) mBenchmarkParameters.mWindowSize);
+    mDataset2 = new GeneralDataset<>(new RandomEntryGenerator(mBenchmarkParameters.mMaxEntries, 1,
+        (int) (mBenchmarkParameters.mNumUniqueEntries * 2) + 1, 1, 1024, 1,
+        ThreadLocalRandom.current().nextInt()), (int) mBenchmarkParameters.mWindowSize);
   }
 
   @Override
@@ -57,15 +58,23 @@ public class HitRatioBenchmark implements Benchmark {
       mShadowCache.put(item, entry.getSize(), entry.getScopeInfo());
       cacheBytes += entry.getSize();
     }
+    mShadowCache.updateWorkingSetSize();
 
     System.out.println();
-    System.out.printf("Before read, hr(num)=%f, hr(byte)=%f\n",
+    System.out.printf("Before read, hr(num)=%d/%d=%f, hr(byte)=%d/%d=%f\n",
+        mShadowCache.getShadowCachePageHit(), mShadowCache.getShadowCachePageRead(),
         mShadowCache.getShadowCachePageHit() / (double) mShadowCache.getShadowCachePageRead(),
+        mShadowCache.getShadowCacheByteHit(), mShadowCache.getShadowCacheByteRead(),
         mShadowCache.getShadowCacheByteHit() / (double) mShadowCache.getShadowCacheByteRead());
+    System.out.printf("Real cache should have %d pages, %d bytes\n", cachePages, cacheBytes);
+    System.out.printf("Shadow cache has %d pages, %d bytes\n", mShadowCache.getShadowCachePages(),
+        mShadowCache.getShadowCacheBytes());
 
     // then check each inserted item, should have a hit ratio of about 50%
     long pagesHit = 0;
+    long pagesRead = 0;
     long bytesHit = 0;
+    long bytesRead = 0;
     for (long i = 0; i < mBenchmarkParameters.mNumUniqueEntries; i++) {
       DatasetEntry<String> entry = mDataset2.next();
       PageId item = new PageId(entry.getScopeInfo().toString(), entry.getItem().hashCode());
@@ -74,13 +83,17 @@ public class HitRatioBenchmark implements Benchmark {
         pagesHit++;
         bytesHit += entry.getSize();
       }
+      pagesRead++;
+      bytesRead += entry.getSize();
     }
 
     System.out.println();
-    System.out.printf("Expected hr(num)=%f, hr(byte)=%f\n", pagesHit / (double) cachePages,
-        bytesHit / (double) cacheBytes);
-    System.out.printf("After read, hr(num)=%f, hr(byte)=%f\n",
+    System.out.printf("Expected hr(num)=%d/%d=%f, hr(byte)=%d/%d=%f\n", pagesHit, pagesRead,
+        pagesHit / (double) pagesRead, bytesHit, bytesRead, bytesHit / (double) bytesRead);
+    System.out.printf("After read, hr(num)=%d/%d=%f, hr(byte)=%d/%d=%f\n",
+        mShadowCache.getShadowCachePageHit(), mShadowCache.getShadowCachePageRead(),
         mShadowCache.getShadowCachePageHit() / (double) mShadowCache.getShadowCachePageRead(),
+        mShadowCache.getShadowCacheByteHit(), mShadowCache.getShadowCacheByteRead(),
         mShadowCache.getShadowCacheByteHit() / (double) mShadowCache.getShadowCacheByteRead());
   }
 }

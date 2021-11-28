@@ -1,7 +1,7 @@
 /*
- * The Alluxio Open Foundation licenses this work under the Apache License, version 2.0
- * (the "License"). You may not use this work except in compliance with the License, which is
- * available at www.apache.org/licenses/LICENSE-2.0
+ * The Alluxio Open Foundation licenses this work under the Apache License, version 2.0 (the
+ * "License"). You may not use this work except in compliance with the License, which is available
+ * at www.apache.org/licenses/LICENSE-2.0
  *
  * This software is distributed on an "AS IS" basis, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
  * either express or implied, as more fully set forth in the License.
@@ -16,15 +16,21 @@ import alluxio.client.quota.CacheScope;
 import alluxio.util.LRU;
 
 import java.util.HashMap;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 
-public class AccurateEstimationShadowCacheManager implements ShadowCache {
+public class IdealShadowCacheManager implements ShadowCache {
   private final Lock lock;
   private final LRU itemLRU;
   private final HashMap<PageId, ItemAttribute> itemToAttribute;
   private final HashMap<CacheScope, Integer> scopeToNumber;
   private final HashMap<CacheScope, Integer> scopeToSize;
+
+  private final AtomicLong mShadowCachePageRead = new AtomicLong(0);
+  private final AtomicLong mShadowCachePageHit = new AtomicLong(0);
+  private final AtomicLong mShadowCacheByteRead = new AtomicLong(0);
+  private final AtomicLong mShadowCacheByteHit = new AtomicLong(0);
 
   private final int bitsPerItem;
   private final int bitsPerScope;
@@ -39,7 +45,7 @@ public class AccurateEstimationShadowCacheManager implements ShadowCache {
   private long hitSize;
   private long timestampNow;
 
-  public AccurateEstimationShadowCacheManager(ShadowCacheParameters params) {
+  public IdealShadowCacheManager(ShadowCacheParameters params) {
     this.windowSize = params.mWindowSize;
     this.lock = new ReentrantLock();
     this.itemLRU = new LRU();
@@ -88,6 +94,19 @@ public class AccurateEstimationShadowCacheManager implements ShadowCache {
 
   @Override
   public int get(PageId pageId, int bytesToRead, CacheScope scope) {
+    updateWorkingSetSize();
+    mShadowCachePageRead.incrementAndGet();
+    mShadowCacheByteRead.addAndGet(bytesToRead);
+    ItemAttribute attribute = itemToAttribute.get(pageId);
+    if (attribute != null) {
+      // on cache hit
+      mShadowCachePageHit.incrementAndGet();
+      mShadowCacheByteHit.addAndGet(bytesToRead);
+      attribute.timeStamp = timestampNow;
+      itemLRU.put(pageId);
+      assert bytesToRead == itemToAttribute.get(pageId).size;
+      return bytesToRead;
+    }
     return 0;
   }
 
@@ -157,22 +176,22 @@ public class AccurateEstimationShadowCacheManager implements ShadowCache {
 
   @Override
   public long getShadowCachePageRead() {
-    return readCount;
+    return mShadowCachePageRead.get();
   }
 
   @Override
   public long getShadowCachePageHit() {
-    return hitCount;
+    return mShadowCachePageHit.get();
   }
 
   @Override
   public long getShadowCacheByteRead() {
-    return readSize;
+    return mShadowCacheByteRead.get();
   }
 
   @Override
   public long getShadowCacheByteHit() {
-    return hitSize;
+    return mShadowCacheByteHit.get();
   }
 
   @Override
@@ -190,8 +209,8 @@ public class AccurateEstimationShadowCacheManager implements ShadowCache {
 
   @Override
   public String getSummary() {
-    return "\nbitsPerItem: " + bitsPerItem + "\nbitsPerSize: " + bitsPerSize + "\nbitsPerScope: "
-        + bitsPerScope + "\nSizeInMB: "
+    return "MultipleBloomShadowCache:\nbitsPerItem: " + bitsPerItem + "\nbitsPerSize: "
+        + bitsPerSize + "\nbitsPerScope: " + bitsPerScope + "\nSizeInMB: "
         + (windowSize * (bitsPerItem + bitsPerTimestamp + bitsPerScope + bitsPerTimestamp) / 8.0
             / Constants.MB
             + windowSize * (bitsPerScope * 2 + 32 + bitsPerSize) / 8.0 / Constants.MB);

@@ -11,6 +11,7 @@
 
 package alluxio.client.file.cache.benchmark;
 
+import alluxio.client.file.cache.IdealShadowCacheManager;
 import alluxio.client.file.cache.PageId;
 import alluxio.client.file.cache.ShadowCache;
 import alluxio.client.file.cache.dataset.Dataset;
@@ -26,6 +27,7 @@ public class AccuracyBenchmark implements Benchmark {
   private final BenchmarkContext mBenchmarkContext;
   private final BenchmarkParameters mBenchmarkParameters;
   private final ShadowCache mShadowCache;
+  private final ShadowCache mIdealShadowCache;
   private Dataset<String> mDataset;
 
   public AccuracyBenchmark(BenchmarkContext benchmarkContext,
@@ -33,6 +35,7 @@ public class AccuracyBenchmark implements Benchmark {
     mBenchmarkContext = benchmarkContext;
     mBenchmarkParameters = benchmarkParameters;
     mShadowCache = ShadowCache.create(benchmarkParameters);
+    mIdealShadowCache = new IdealShadowCacheManager(benchmarkParameters);
     createDataset();
     mShadowCache.stopUpdate();
   }
@@ -103,6 +106,13 @@ public class AccuracyBenchmark implements Benchmark {
         mShadowCache.aging();
         agingDuration += System.currentTimeMillis() - startAgingTick;
       }
+
+      // update ideal cache
+      nread = mIdealShadowCache.get(item, entry.getSize(), entry.getScopeInfo());
+      if (nread <= 0) {
+        mIdealShadowCache.put(item, entry.getSize(), entry.getScopeInfo());
+      }
+      mIdealShadowCache.updateTimestamp(1);
 
       // report
       if (opsCount % mBenchmarkParameters.mReportInterval == 0) {
