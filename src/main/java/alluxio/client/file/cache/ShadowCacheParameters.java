@@ -49,6 +49,9 @@ public class ShadowCacheParameters extends Parameters {
   @Parameter(names = "--tag_bits")
   public int mTagBits = 8;
 
+  @Parameter(names = "--tags_per_bucket")
+  public int mTagsPerBucket = 4;
+
   @Parameter(names = "--size_encode", converter = SizeEncodeTypeConverter.class)
   public SizeEncodeType mSizeEncodeType = SizeEncodeType.NONE;
 

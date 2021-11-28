@@ -45,7 +45,7 @@ public class ConcurrentClockCuckooFilter<T> implements ClockCuckooFilter<T>, Ser
   private static final double DEFAULT_FPP = 0.01;
   // The default load factor is from "Cuckoo Filter: Practically Better Than Bloom" by Fan et al.
   private static final double DEFAULT_LOAD_FACTOR = 0.955;
-  private static final int TAGS_PER_BUCKET = 4;
+  private static int TAGS_PER_BUCKET = 4;
   private static final int DEFAULT_NUM_LOCKS = 4096;
 
   // the maximum number of entries in a cuckoo path from "Algorithmic Improvements for Fast
@@ -176,6 +176,7 @@ public class ConcurrentClockCuckooFilter<T> implements ClockCuckooFilter<T>, Ser
   public static <T> ConcurrentClockCuckooFilter<T> create(Funnel<? super T> funnel,
       ShadowCacheParameters conf) {
     // make expectedInsertions a power of 2
+    TAGS_PER_BUCKET =  conf.mTagsPerBucket;
     int bitsPerTag = conf.mTagBits;
     long budgetInBits = FormatUtils.parseSpaceSize(conf.mMemoryBudget) * 8;
     int bitsPerClock = conf.mClockBits;
