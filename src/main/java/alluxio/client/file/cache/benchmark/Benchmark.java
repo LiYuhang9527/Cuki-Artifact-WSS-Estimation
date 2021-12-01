@@ -24,6 +24,8 @@ public interface Benchmark {
         return new ThroughputBenchmark(benchmarkContext, parameters);
       case HITRATIO:
         return new HitRatioBenchmark(benchmarkContext, parameters);
+      case INSERT_THROUGHPUT:
+        return new InsertThroughputBenchmark(benchmarkContext, parameters);
     }
     throw new NoSuchElementException();
   }
@@ -39,6 +41,6 @@ public interface Benchmark {
   }
 
   enum BenchmarkType {
-    ACCURACY, THROUGHPUT, HITRATIO
+    ACCURACY, THROUGHPUT, HITRATIO, INSERT_THROUGHPUT, QUERY_THROUGHPUT
   }
 }
