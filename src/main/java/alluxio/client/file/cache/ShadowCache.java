@@ -24,7 +24,7 @@ public interface ShadowCache {
         parameters.mAgeLevels = parameters.mNumBloom;
         return new MultipleBloomShadowCacheManager(parameters);
       case IDEAL:
-        parameters.mAgeLevels = 16;
+        parameters.mAgeLevels = 1;
         return new IdealShadowCacheManager(parameters);
       case BMC:
         parameters.mAgeLevels = (1 << parameters.mClockBits) - 1;
