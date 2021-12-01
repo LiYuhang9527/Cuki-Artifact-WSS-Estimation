@@ -77,6 +77,11 @@ public class AccuracyBenchmark implements Benchmark {
     double pageHitARE = 0.0;
     double byteHitARE = 0.0;
     long errCnt = 0;
+    long numFP = 0; // number of pages are seen as existent in cache but in fact not
+    long numFN = 0; // number of pages are seen as inexistent in cache but in fact existed
+    long byteFP = 0; // number of bytes are seen as existent in cache but in fact not
+    long byteFN = 0; // number of bytes are seen as inexistent in cache but in fact existed
+    long totalBytes = 0; // number of bytes passed the shadow cache
     long agingPeriod = mBenchmarkParameters.mWindowSize / mBenchmarkParameters.mAgeLevels;
     if (agingPeriod <= 0) {
       agingPeriod = 1;
@@ -111,11 +116,24 @@ public class AccuracyBenchmark implements Benchmark {
       }
 
       // update ideal cache
-      nread = mIdealShadowCache.get(item, entry.getSize(), entry.getScopeInfo());
-      if (nread <= 0) {
+      int nread2 = mIdealShadowCache.get(item, entry.getSize(), entry.getScopeInfo());
+      if (nread2 <= 0) {
         mIdealShadowCache.put(item, entry.getSize(), entry.getScopeInfo());
       }
       mIdealShadowCache.updateTimestamp(1);
+      mIdealShadowCache.aging();
+
+      // membership statistics
+      if (nread > nread2) {
+        // false positive
+        numFP++;
+        byteFP += entry.getSize();
+      } else if (nread < nread2) {
+        // false negative
+        numFN++;
+        byteFN += entry.getSize();
+      }
+      totalBytes += entry.getSize();
 
       // report
       if (opsCount % mBenchmarkParameters.mReportInterval == 0) {
@@ -175,6 +193,20 @@ public class AccuracyBenchmark implements Benchmark {
         opsCount * 1000 / (double) (cacheDuration + agingDuration), numARE * 100 / errCnt,
         byteARE * 100 / errCnt, pageHitARE * 100 / errCnt, byteHitARE * 100 / errCnt,
         pageHitAREFinal * 100, byteHitAREFinal * 100);
+
+    System.out.println();
+    System.out.println("FPR(Page)\tFNR(Page)\tER(Page)");
+    System.out.printf("%d/%d=%.4f%%\t%d/%d=%.4f%%\t%d/%d=%.4f%%\n",
+            numFP, opsCount, numFP * 100 / (double)opsCount,
+            numFN, opsCount, numFN * 100 / (double)opsCount,
+            numFP + numFN, opsCount, (numFP + numFN) * 100 / (double)opsCount);
+
+    System.out.println();
+    System.out.println("FPR(Byte)\tFNR(Byte)\tER(Byte)");
+    System.out.printf("%d/%d=%.4f%%\t%d/%d=%.4f%%\t%d/%d=%.4f%%\n",
+            byteFP, totalBytes, byteFP * 100 / (double)totalBytes,
+            byteFN, totalBytes, byteFN * 100 / (double)totalBytes,
+            byteFP + byteFN, totalBytes, (byteFP + byteFN) * 100 / (double)totalBytes);
   }
 
   @Override
