@@ -94,6 +94,7 @@ public class IdealShadowCacheManager implements ShadowCache {
 
   @Override
   public int get(PageId pageId, int bytesToRead, CacheScope scope) {
+    lock.lock();
     updateWorkingSetSize();
     mShadowCachePageRead.incrementAndGet();
     mShadowCacheByteRead.addAndGet(bytesToRead);
@@ -105,15 +106,19 @@ public class IdealShadowCacheManager implements ShadowCache {
       attribute.timeStamp = timestampNow;
       itemLRU.put(pageId);
       assert bytesToRead == itemToAttribute.get(pageId).size;
+      lock.unlock();
       return bytesToRead;
     }
+    lock.unlock();
     return 0;
   }
 
   @Override
   public boolean delete(PageId pageId) {
+    lock.lock();
     boolean b1 = itemLRU.remove(pageId);
     boolean b2 = itemToAttribute.remove(pageId) != null;
+    lock.unlock();
     return b1 && b2;
   }
 
