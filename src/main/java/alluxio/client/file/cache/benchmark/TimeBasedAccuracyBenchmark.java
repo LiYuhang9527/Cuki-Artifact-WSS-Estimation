@@ -104,8 +104,8 @@ public class TimeBasedAccuracyBenchmark implements Benchmark {
     mStartTime = System.currentTimeMillis();
     long mEndTime = mStartTime + FormatUtils.parseTimeSize(mBenchmarkParameters.mRunTime);
     long firstEntryArrivalTime = -1;
-    mScheduler.scheduleAtFixedRate(this::reportStatistics, 0, mBenchmarkParameters.mReportInterval,
-        TimeUnit.MILLISECONDS);
+    mScheduler.scheduleAtFixedRate(this::reportStatistics, mBenchmarkParameters.mReportInterval,
+        mBenchmarkParameters.mReportInterval, TimeUnit.MILLISECONDS);
     while (mDataset.hasNext() && opsCount < mBenchmarkParameters.mMaxEntries
         && System.currentTimeMillis() < mEndTime) {
       opsCount++;
@@ -115,7 +115,8 @@ public class TimeBasedAccuracyBenchmark implements Benchmark {
       }
 
       // TODO(iluoeli): rate limiter
-      long elapsedMillis = System.currentTimeMillis() - mStartTime;
+      long elapsedMillis =
+          (System.currentTimeMillis() - mStartTime) * mBenchmarkParameters.mTimeDivisor;
       long millisToWait = ((entry.getTimestamp() - firstEntryArrivalTime) * 1000 - elapsedMillis);
       if (millisToWait > 0) {
         try {

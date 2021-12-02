@@ -34,6 +34,9 @@ public class BenchmarkParameters extends ShadowCacheParameters {
   @Parameter(names = "--run_time")
   public String mRunTime = "7d";
 
+  @Parameter(names = "--time_divisor")
+  public long mTimeDivisor = 1;
+
   @Parameter(names = "--num_unique_entries")
   public long mNumUniqueEntries = 1024;
 
