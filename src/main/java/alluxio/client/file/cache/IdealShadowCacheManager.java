@@ -12,6 +12,7 @@
 package alluxio.client.file.cache;
 
 import alluxio.Constants;
+import alluxio.client.file.cache.cuckoofilter.SlidingWindowType;
 import alluxio.client.quota.CacheScope;
 import alluxio.util.LRU;
 
@@ -37,15 +38,13 @@ public class IdealShadowCacheManager implements ShadowCache {
   private final int bitsPerSize;
   private final int bitsPerTimestamp;
   private final long windowSize;
-  private long hitCount;
-  private long readCount;
   private long realNumber;
   private long realSize;
-  private long readSize;
-  private long hitSize;
+  private SlidingWindowType mSlidingWindowType;
   private long timestampNow;
 
   public IdealShadowCacheManager(ShadowCacheParameters params) {
+    mSlidingWindowType = params.mSlidingWindowType;
     this.windowSize = params.mWindowSize;
     this.lock = new ReentrantLock();
     this.itemLRU = new LRU();
@@ -59,32 +58,24 @@ public class IdealShadowCacheManager implements ShadowCache {
     this.realNumber = 0;
     this.realSize = 0;
     this.timestampNow = 0;
-    this.hitCount = 0;
-    this.readCount = 0;
-    this.readSize = 0;
-    this.hitSize = 0;
   }
 
   @Override
   public boolean put(PageId pageId, int size, CacheScope scope) {
     boolean success;
     lock.lock();
-    readCount++;
-    readSize += size;
     if (pageId == null) {
       return false;
     }
     ItemAttribute attribute = itemToAttribute.get(pageId);
     if (attribute == null) {
-      itemToAttribute.put(pageId, new ItemAttribute(size, scope, timestampNow));
+      itemToAttribute.put(pageId, new ItemAttribute(size, scope, getCurrentTimestamp()));
       success = itemLRU.put(pageId);
       scopeToSize.put(scope, scopeToSize.getOrDefault(scope, 0) + size);
       scopeToNumber.put(scope, scopeToNumber.getOrDefault(scope, 0) + 1);
       realSize += size;
     } else {
-      hitCount++;
-      hitSize += size;
-      attribute.timeStamp = timestampNow;
+      attribute.timeStamp = getCurrentTimestamp();
       success = itemLRU.put(pageId);
     }
     realNumber = itemLRU.getSize();
@@ -95,15 +86,15 @@ public class IdealShadowCacheManager implements ShadowCache {
   @Override
   public int get(PageId pageId, int bytesToRead, CacheScope scope) {
     lock.lock();
-    updateWorkingSetSize();
+    // aging();
     mShadowCachePageRead.incrementAndGet();
     mShadowCacheByteRead.addAndGet(bytesToRead);
     ItemAttribute attribute = itemToAttribute.get(pageId);
-    if (attribute != null) {
+    if (attribute != null && attribute.timeStamp < (getCurrentTimestamp() - windowSize)) {
       // on cache hit
       mShadowCachePageHit.incrementAndGet();
       mShadowCacheByteHit.addAndGet(bytesToRead);
-      attribute.timeStamp = timestampNow;
+      attribute.timeStamp = getCurrentTimestamp();
       itemLRU.put(pageId);
       assert bytesToRead == itemToAttribute.get(pageId).size;
       lock.unlock();
@@ -122,10 +113,13 @@ public class IdealShadowCacheManager implements ShadowCache {
     return b1 && b2;
   }
 
+  /**
+   * Assert held lock
+   */
   public void aging() {
-    long oldTimestamp = timestampNow - windowSize;
+    long oldTimestamp = getCurrentTimestamp() - windowSize;
     if (oldTimestamp > 0) {
-      while (true) {
+      while (!itemLRU.isEmpty()) {
         PageId item = itemLRU.peek();
         ItemAttribute itemAttribute = itemToAttribute.get(item);
         if (itemAttribute.timeStamp < oldTimestamp) {
@@ -144,14 +138,21 @@ public class IdealShadowCacheManager implements ShadowCache {
     realNumber = itemLRU.getSize();
   }
 
+  private long getCurrentTimestamp() {
+    return (mSlidingWindowType == SlidingWindowType.TIME_BASED) ? System.currentTimeMillis()
+        : timestampNow;
+  }
+
   @Override
   public void updateWorkingSetSize() {
+    lock.lock();
     aging();
+    lock.unlock();
   }
 
   @Override
   public void stopUpdate() {
-
+    // no-op
   }
 
   @Override

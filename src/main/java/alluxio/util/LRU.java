@@ -109,4 +109,7 @@ public class LRU {
     public Node next(Node node){
         return node.next;
     }
+    public boolean isEmpty() {
+        return head == null;
+    }
 }
