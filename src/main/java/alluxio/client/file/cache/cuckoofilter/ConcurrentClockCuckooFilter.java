@@ -202,7 +202,7 @@ public class ConcurrentClockCuckooFilter<T> implements ClockCuckooFilter<T>, Ser
     // sliding window
     SlidingWindowType slidingWindowType = SlidingWindowType.NONE;
     if (conf.mOpportunisticAging) {
-      slidingWindowType = SlidingWindowType.COUNT_BASED;
+      slidingWindowType = conf.mSlidingWindowType;
     }
 
     // size encoding

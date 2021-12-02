@@ -134,7 +134,6 @@ public class TimeBasedAccuracyBenchmark implements Benchmark {
       if (nread2 <= 0) {
         mIdealShadowCache.put(item, entry.getSize(), entry.getScopeInfo());
       }
-      mIdealShadowCache.updateTimestamp(1);
 
       // update shadow cache
       long startCacheTick = System.currentTimeMillis();
@@ -142,7 +141,6 @@ public class TimeBasedAccuracyBenchmark implements Benchmark {
       if (nread <= 0) {
         mShadowCache.put(item, entry.getSize(), entry.getScopeInfo());
       }
-      mShadowCache.updateTimestamp(1);
       cacheDuration += (System.currentTimeMillis() - startCacheTick);
 
       // membership statistics
