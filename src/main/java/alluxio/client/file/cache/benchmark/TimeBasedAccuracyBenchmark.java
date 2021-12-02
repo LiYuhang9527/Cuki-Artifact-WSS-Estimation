@@ -14,6 +14,7 @@ package alluxio.client.file.cache.benchmark;
 import alluxio.client.file.cache.IdealShadowCacheManager;
 import alluxio.client.file.cache.PageId;
 import alluxio.client.file.cache.ShadowCache;
+import alluxio.client.file.cache.cuckoofilter.SlidingWindowType;
 import alluxio.client.file.cache.dataset.Dataset;
 import alluxio.client.file.cache.dataset.DatasetEntry;
 import alluxio.client.file.cache.dataset.GeneralDataset;
@@ -22,22 +23,44 @@ import alluxio.client.file.cache.dataset.generator.MSREntryGenerator;
 import alluxio.client.file.cache.dataset.generator.RandomEntryGenerator;
 import alluxio.client.file.cache.dataset.generator.SequentialEntryGenerator;
 import alluxio.client.file.cache.dataset.generator.TwitterEntryGenerator;
+import alluxio.util.FormatUtils;
 
-public class AccuracyBenchmark implements Benchmark {
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+
+public class TimeBasedAccuracyBenchmark implements Benchmark {
   private final BenchmarkContext mBenchmarkContext;
   private final BenchmarkParameters mBenchmarkParameters;
   private final ShadowCache mShadowCache;
   private final ShadowCache mIdealShadowCache;
+  private final ScheduledExecutorService mScheduler = Executors.newScheduledThreadPool(0);
+  long mStartTime = System.currentTimeMillis();
+  long opsCount = 0;
+  long agingCount = 0;
+  long agingDuration = 0;
+  long cacheDuration = 0;
+  double numARE = 0.0;
+  double byteARE = 0.0;
+  double pageHitARE = 0.0;
+  double byteHitARE = 0.0;
+  long errCnt = 0;
+  long numFP = 0; // number of pages are seen as existent in cache but in fact not
+  long numFN = 0; // number of pages are seen as inexistent in cache but in fact existed
+  long byteFP = 0; // number of bytes are seen as existent in cache but in fact not
+  long byteFN = 0; // number of bytes are seen as inexistent in cache but in fact existed
+  long totalBytes = 0; // number of bytes passed the shadow cache
   private Dataset<String> mDataset;
 
-  public AccuracyBenchmark(BenchmarkContext benchmarkContext,
+  public TimeBasedAccuracyBenchmark(BenchmarkContext benchmarkContext,
       BenchmarkParameters benchmarkParameters) {
     mBenchmarkContext = benchmarkContext;
     mBenchmarkParameters = benchmarkParameters;
+    // force use time-based sliding window
+    benchmarkParameters.mSlidingWindowType = SlidingWindowType.TIME_BASED;
     mShadowCache = ShadowCache.create(benchmarkParameters);
     mIdealShadowCache = new IdealShadowCacheManager(benchmarkParameters);
     createDataset();
-    mShadowCache.stopUpdate();
   }
 
   private void createDataset() {
@@ -68,20 +91,6 @@ public class AccuracyBenchmark implements Benchmark {
 
   @Override
   public void run() {
-    long opsCount = 0;
-    long agingCount = 0;
-    long agingDuration = 0;
-    long cacheDuration = 0;
-    double numARE = 0.0;
-    double byteARE = 0.0;
-    double pageHitARE = 0.0;
-    double byteHitARE = 0.0;
-    long errCnt = 0;
-    long numFP = 0; // number of pages are seen as existent in cache but in fact not
-    long numFN = 0; // number of pages are seen as inexistent in cache but in fact existed
-    long byteFP = 0; // number of bytes are seen as existent in cache but in fact not
-    long byteFN = 0; // number of bytes are seen as inexistent in cache but in fact existed
-    long totalBytes = 0; // number of bytes passed the shadow cache
     long agingPeriod = mBenchmarkParameters.mWindowSize / mBenchmarkParameters.mAgeLevels;
     if (agingPeriod <= 0) {
       agingPeriod = 1;
@@ -92,13 +101,41 @@ public class AccuracyBenchmark implements Benchmark {
     mBenchmarkContext.mStream.println(
         "#operation\tReal\tReal(byte)\tEst\tEst(byte)\t" + "RealRead(Page)\tRealRead(Bytes)\t"
             + "RealHit(Page)\tRealHit(Bytes)\t" + "EstHit(Page)\tEstHit(Bytes)");
-
-    long startTick = System.currentTimeMillis();
-    while (mDataset.hasNext() && opsCount < mBenchmarkParameters.mMaxEntries) {
+    mStartTime = System.currentTimeMillis();
+    long mEndTime = mStartTime + FormatUtils.parseTimeSize(mBenchmarkParameters.mRunTime);
+    long firstEntryArrivalTime = -1;
+    mScheduler.scheduleAtFixedRate(this::reportStatistics, 0, mBenchmarkParameters.mReportInterval,
+        TimeUnit.MILLISECONDS);
+    while (mDataset.hasNext() && opsCount < mBenchmarkParameters.mMaxEntries
+        && System.currentTimeMillis() < mEndTime) {
       opsCount++;
       DatasetEntry<String> entry = mDataset.next();
+      if (firstEntryArrivalTime < 0) {
+        firstEntryArrivalTime = entry.getTimestamp();
+      }
 
+      // TODO(iluoeli): rate limiter
+      long elapsedMillis = System.currentTimeMillis() - mStartTime;
+      long millisToWait = ((entry.getTimestamp() - firstEntryArrivalTime) * 1000 - elapsedMillis);
+      if (millisToWait > 0) {
+        try {
+          Thread.sleep(millisToWait);
+        } catch (Exception e) {
+          e.printStackTrace();
+          System.exit(1);
+        }
+      }
       PageId item = new PageId(entry.getScopeInfo().toString(), entry.getItem().hashCode());
+
+      // update ideal cache
+      // mIdealShadowCache.updateWorkingSetSize();
+      int nread2 = mIdealShadowCache.get(item, entry.getSize(), entry.getScopeInfo());
+      if (nread2 <= 0) {
+        mIdealShadowCache.put(item, entry.getSize(), entry.getScopeInfo());
+      }
+      mIdealShadowCache.updateTimestamp(1);
+
+      // update shadow cache
       long startCacheTick = System.currentTimeMillis();
       int nread = mShadowCache.get(item, entry.getSize(), entry.getScopeInfo());
       if (nread <= 0) {
@@ -106,22 +143,6 @@ public class AccuracyBenchmark implements Benchmark {
       }
       mShadowCache.updateTimestamp(1);
       cacheDuration += (System.currentTimeMillis() - startCacheTick);
-
-      // Aging
-      if (opsCount % agingPeriod == 0) {
-        agingCount++;
-        long startAgingTick = System.currentTimeMillis();
-        mShadowCache.aging();
-        agingDuration += System.currentTimeMillis() - startAgingTick;
-      }
-
-      // update ideal cache
-      int nread2 = mIdealShadowCache.get(item, entry.getSize(), entry.getScopeInfo());
-      if (nread2 <= 0) {
-        mIdealShadowCache.put(item, entry.getSize(), entry.getScopeInfo());
-      }
-      mIdealShadowCache.updateTimestamp(1);
-      mIdealShadowCache.aging();
 
       // membership statistics
       if (nread > nread2) {
@@ -134,43 +155,14 @@ public class AccuracyBenchmark implements Benchmark {
         byteFN += entry.getSize();
       }
       totalBytes += entry.getSize();
-
-      // report
-      if (opsCount % mBenchmarkParameters.mReportInterval == 0) {
-        mIdealShadowCache.updateWorkingSetSize();
-        mShadowCache.updateWorkingSetSize();
-        // long realNum = mDataset.getRealEntryNumber();
-        // long realByte = mDataset.getRealEntrySize();
-        long realNum = mIdealShadowCache.getShadowCachePages();
-        long realByte = mIdealShadowCache.getShadowCacheBytes();
-        long realCachePagesRead = mIdealShadowCache.getShadowCachePageRead();
-        long realCacheBytesRead = mIdealShadowCache.getShadowCacheByteRead();
-        long realCachePagesHit = mIdealShadowCache.getShadowCachePageHit();
-        long realCacheBytesHit = mIdealShadowCache.getShadowCacheByteHit();
-        long estNum = mShadowCache.getShadowCachePages();
-        long estByte = mShadowCache.getShadowCacheBytes();
-        long estCachePagesRead = mShadowCache.getShadowCachePageRead();
-        long estCacheBytesRead = mShadowCache.getShadowCacheByteRead();
-        long estCachePagesHit = mShadowCache.getShadowCachePageHit();
-        long estCacheBytesHit = mShadowCache.getShadowCacheByteHit();
-        assert realCachePagesRead == estCachePagesRead;
-        assert realCacheBytesRead == estCacheBytesRead;
-        mBenchmarkContext.mStream.printf("%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\n", opsCount,
-            realNum, realByte, estNum, estByte, realCachePagesRead, realCacheBytesRead,
-            realCachePagesHit, realCacheBytesHit, estCachePagesHit, estCacheBytesHit);
-        // accumulate error
-        errCnt++;
-        numARE += Math.abs(estNum / (double) realNum - 1.0);
-        byteARE += Math.abs(estByte / (double) realByte - 1.0);
-        if (estCacheBytesHit != 0) {
-          pageHitARE += Math.abs(realCachePagesHit / (double) estCachePagesHit - 1.0);
-          byteHitARE += Math.abs(realCacheBytesHit / (double) estCacheBytesHit - 1.0);
-        }
-      }
     }
+
+    mScheduler.shutdown();
+    mShadowCache.stopUpdate();
+
     long realCachePagesRead = mIdealShadowCache.getShadowCachePageRead();
     long realCacheBytesRead = mIdealShadowCache.getShadowCacheByteRead();
-    long totalDuration = (System.currentTimeMillis() - startTick);
+    long totalDuration = (System.currentTimeMillis() - mStartTime);
     long realCachePagesHit = mIdealShadowCache.getShadowCachePageHit();
     long realCacheBytesHit = mIdealShadowCache.getShadowCacheByteHit();
     long estCachePagesHit = mShadowCache.getShadowCachePageHit();
@@ -210,5 +202,33 @@ public class AccuracyBenchmark implements Benchmark {
   @Override
   public boolean finish() {
     return false;
+  }
+
+  private void reportStatistics() {
+    long elapsedSeconds =
+        (System.currentTimeMillis() - mStartTime) / mBenchmarkParameters.mReportInterval;
+    mIdealShadowCache.updateWorkingSetSize();
+    long realNum = mIdealShadowCache.getShadowCachePages();
+    long realByte = mIdealShadowCache.getShadowCacheBytes();
+    long realCachePagesRead = mIdealShadowCache.getShadowCachePageRead();
+    long realCacheBytesRead = mIdealShadowCache.getShadowCacheByteRead();
+    long realCachePagesHit = mIdealShadowCache.getShadowCachePageHit();
+    long realCacheBytesHit = mIdealShadowCache.getShadowCacheByteHit();
+    mShadowCache.updateWorkingSetSize();
+    long estNum = mShadowCache.getShadowCachePages();
+    long estByte = mShadowCache.getShadowCacheBytes();
+    long estCachePagesHit = mShadowCache.getShadowCachePageHit();
+    long estCacheBytesHit = mShadowCache.getShadowCacheByteHit();
+    mBenchmarkContext.mStream.printf("%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\n", elapsedSeconds,
+        realNum, realByte, estNum, estByte, realCachePagesRead, realCacheBytesRead,
+        realCachePagesHit, realCacheBytesHit, estCachePagesHit, estCacheBytesHit);
+    // accumulate error
+    errCnt++;
+    numARE += Math.abs(estNum / (double) realNum - 1.0);
+    byteARE += Math.abs(estByte / (double) realByte - 1.0);
+    if (estCacheBytesHit != 0) {
+      pageHitARE += Math.abs(realCachePagesHit / (double) estCachePagesHit - 1.0);
+      byteHitARE += Math.abs(realCacheBytesHit / (double) estCacheBytesHit - 1.0);
+    }
   }
 }

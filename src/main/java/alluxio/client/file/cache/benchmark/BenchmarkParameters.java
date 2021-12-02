@@ -31,6 +31,9 @@ public class BenchmarkParameters extends ShadowCacheParameters {
   @Parameter(names = "--max_entries")
   public long mMaxEntries = 65536;
 
+  @Parameter(names = "--run_time")
+  public String mRunTime = "7d";
+
   @Parameter(names = "--num_unique_entries")
   public long mNumUniqueEntries = 1024;
 
