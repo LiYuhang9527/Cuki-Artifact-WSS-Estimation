@@ -90,7 +90,7 @@ public class IdealShadowCacheManager implements ShadowCache {
     mShadowCachePageRead.incrementAndGet();
     mShadowCacheByteRead.addAndGet(bytesToRead);
     ItemAttribute attribute = itemToAttribute.get(pageId);
-    if (attribute != null && attribute.timeStamp < (getCurrentTimestamp() - windowSize)) {
+    if (attribute != null && attribute.timeStamp >= (getCurrentTimestamp() - windowSize)) {
       // on cache hit
       mShadowCachePageHit.incrementAndGet();
       mShadowCacheByteHit.addAndGet(bytesToRead);
