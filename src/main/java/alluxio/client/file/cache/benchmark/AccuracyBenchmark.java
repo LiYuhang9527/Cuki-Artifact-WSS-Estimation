@@ -41,23 +41,7 @@ public class AccuracyBenchmark implements Benchmark {
   }
 
   private void createDataset() {
-    EntryGenerator<String> generator;
-    switch (mBenchmarkParameters.mDataset) {
-      case "sequential":
-        generator = new SequentialEntryGenerator(mBenchmarkParameters.mMaxEntries, 1,
-            (int) mBenchmarkParameters.mNumUniqueEntries + 1);
-        break;
-      case "msr":
-        generator = new MSREntryGenerator(mBenchmarkParameters.mTrace);
-        break;
-      case "twitter":
-        generator = new TwitterEntryGenerator(mBenchmarkParameters.mTrace);
-        break;
-      case "random":
-      default:
-        generator = new RandomEntryGenerator(mBenchmarkParameters.mMaxEntries, 1,
-            (int) mBenchmarkParameters.mNumUniqueEntries + 1);
-    }
+    EntryGenerator<String> generator = BenchmarkUtils.createGenerator(mBenchmarkParameters);
     mDataset = new GeneralDataset<>(generator, (int) mBenchmarkParameters.mWindowSize);
   }
 

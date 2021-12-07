@@ -16,6 +16,7 @@ import alluxio.client.file.cache.dataset.generator.MSREntryGenerator;
 import alluxio.client.file.cache.dataset.generator.RandomEntryGenerator;
 import alluxio.client.file.cache.dataset.generator.SequentialEntryGenerator;
 import alluxio.client.file.cache.dataset.generator.TwitterEntryGenerator;
+import alluxio.client.file.cache.dataset.generator.YCSBEntryGenerator;
 
 public class BenchmarkUtils {
   public static EntryGenerator<String> createGenerator(BenchmarkParameters conf) {
@@ -26,6 +27,8 @@ public class BenchmarkUtils {
         return new MSREntryGenerator(conf.mTrace);
       case "twitter":
         return new TwitterEntryGenerator(conf.mTrace);
+      case "ycsb":
+        return new YCSBEntryGenerator(conf.mTrace);
       case "random":
       default:
         return new RandomEntryGenerator(conf.mMaxEntries, 1, (int) conf.mNumUniqueEntries + 1, 1,
