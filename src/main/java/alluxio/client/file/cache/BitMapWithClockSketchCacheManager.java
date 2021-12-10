@@ -141,7 +141,12 @@ public class BitMapWithClockSketchCacheManager implements ShadowCache {
   @Override
   public long getShadowCachePages() {
     long zeros = mNumBuckets - mBucketsSet.get();
-    double pages = -mNumBuckets * Math.log(zeros / (double) mNumBuckets);
+    double pages = 0.;
+    if (zeros == 0) {
+      pages = mNumBuckets * Math.log(mNumBuckets);
+    } else {
+      pages = -mNumBuckets * Math.log(zeros / (double) mNumBuckets);
+    }
     return (long) (pages); // 源码里并没有/hashNum，原作者也没考虑
   }
 
@@ -155,14 +160,18 @@ public class BitMapWithClockSketchCacheManager implements ShadowCache {
       }
     }
     long zeros = mNumBuckets - ones;
-    double pages = -mNumBuckets * Math.log(zeros / (double) mNumBuckets);
+    double pages = 0.;
+    if (zeros == 0) {
+      pages = mNumBuckets * Math.log(mNumBuckets);
+    } else {
+      pages = -mNumBuckets * Math.log(zeros / (double) mNumBuckets);
+    }
     return (long) (pages); // 源码里并没有/hashNum，原作者也没考虑
   }
 
   @Override
   public long getShadowCacheBytes() {
-    long zeros = mNumBuckets - mBucketsSet.get();
-    double pages = -mNumBuckets * Math.log(zeros / (double) mNumBuckets);
+    double pages = getShadowCachePages();
     double avePageSize = mTotalSize.get() / (double) mBucketsSet.get();
     return (long) (pages * avePageSize);
   }
