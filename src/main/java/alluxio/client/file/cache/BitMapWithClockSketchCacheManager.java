@@ -94,6 +94,8 @@ public class BitMapWithClockSketchCacheManager implements ShadowCache {
     if (clockTable[pos] == 0 || (mBitsPerScope > 0 && scopefp != scopeTable[pos])) {
       return 0;
     }
+    // reset CLOCK
+    clockTable[pos] = (1 << mBitsPerClock) - 1;
     mShadowCachePageHit.incrementAndGet();
     mShadowCacheByteHit.addAndGet(bytesToRead);
     return bytesToRead;
