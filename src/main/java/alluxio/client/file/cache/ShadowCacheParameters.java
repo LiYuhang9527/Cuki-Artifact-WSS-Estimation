@@ -65,6 +65,10 @@ public class ShadowCacheParameters extends Parameters {
   @Parameter(names = "--num_blooms")
   public int mNumBloom = 4;
 
+  // clock sketch
+  @Parameter(names = "--num_hash")
+  public int mNumHashFunctions = 3;
+
   // String key + page index
   @Parameter(names = "--page_bits")
   public int mPageBits = 8 * 16 + 64;

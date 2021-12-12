@@ -29,6 +29,12 @@ public interface ShadowCache {
       case BMC:
         parameters.mAgeLevels = (1 << parameters.mClockBits) - 1;
         return new BitMapWithClockSketchCacheManager(parameters);
+      case BMC2:
+        parameters.mAgeLevels = (1 << parameters.mClockBits) - 1;
+        return new BitMapWithClockSketch2CacheManager(parameters);
+      case BMC3:
+        parameters.mAgeLevels = (1 << parameters.mClockBits) - 1;
+        return new BitMapWithClockSketch3CacheManager(parameters);
       case BMS:
         parameters.mAgeLevels = 2;
         return new BitMapWithSlidingSketchShadowCacheManager(parameters);
@@ -147,6 +153,6 @@ public interface ShadowCache {
   String getSummary();
 
   enum ShadowCacheType {
-    MBF, CCF, IDEAL, BMC, BMS
+    MBF, CCF, IDEAL, BMC, BMS, BMC2, BMC3
   }
 }
