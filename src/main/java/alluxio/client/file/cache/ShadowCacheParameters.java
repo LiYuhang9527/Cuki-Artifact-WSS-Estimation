@@ -61,6 +61,9 @@ public class ShadowCacheParameters extends Parameters {
   @Parameter(names = "--size_bucket_bits")
   public int mSizeBucketBits = 12;
 
+  @Parameter(names = "--size_bucket_truncate_bits")
+  public int mSizeBucketTruncateBits = 0;
+
   // multiple bloom filter specified parameters
   @Parameter(names = "--num_blooms")
   public int mNumBloom = 4;
