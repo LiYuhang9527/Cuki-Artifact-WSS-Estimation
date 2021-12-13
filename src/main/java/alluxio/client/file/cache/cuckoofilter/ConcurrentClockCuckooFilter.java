@@ -17,6 +17,7 @@ import alluxio.client.file.cache.cuckoofilter.size.ISizeEncoder;
 import alluxio.client.file.cache.cuckoofilter.size.NoOpSizeEncoder;
 import alluxio.client.file.cache.cuckoofilter.size.SizeEncodeType;
 import alluxio.client.file.cache.cuckoofilter.size.SizeEncoder;
+import alluxio.client.file.cache.cuckoofilter.size.TruncateSizeEncoder;
 import alluxio.client.quota.CacheScope;
 import alluxio.collections.BitSet;
 import alluxio.collections.BuiltinBitSet;
@@ -210,6 +211,9 @@ public class ConcurrentClockCuckooFilter<T> implements ClockCuckooFilter<T>, Ser
     if (conf.mSizeEncodeType == SizeEncodeType.BUCKET) {
       sizeEncoder =
           new SizeEncoder(conf.mNumSizeBucketBits + conf.mSizeBucketBits, conf.mNumSizeBucketBits);
+    } else if (conf.mSizeEncodeType == SizeEncodeType.TRUNCATE) {
+      sizeEncoder = new TruncateSizeEncoder(conf.mNumSizeBucketBits + conf.mSizeBucketTruncateBits,
+          conf.mSizeBucketTruncateBits);
     } else {
       sizeEncoder = new NoOpSizeEncoder(conf.mNumSizeBucketBits + conf.mSizeBucketBits);
     }
