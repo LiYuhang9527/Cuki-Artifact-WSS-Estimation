@@ -37,5 +37,4 @@ https://github.com/twitter/cache-trace#anonymized-cache-request-traces-from-twit
 
 ## 3. YCSB
 
-Follow: [https://github.com/iluoeli/YCSB/tree/dump-trace/dummydb](https://github.com/iluoeli/YCSB
-/tree/dump-trace/dummydb)
+Follow: [https://github.com/iluoeli/YCSB/tree/dump-trace/dummydb](https://github.com/iluoeli/YCSB/tree/dump-trace/dummydb)
