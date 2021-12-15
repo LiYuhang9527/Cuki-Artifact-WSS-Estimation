@@ -157,9 +157,8 @@ public class SimpleBitSet implements BitSet {
       // Handle first word
       int fromBitIndex = fromIndex & BIT_INDEX_MASK;
       int len1 = BITS_PER_WORD - fromBitIndex;
-      words[startWordIndex] = BitsUtils.mergeWord(words[startWordIndex], value >>> -len1,
-              fromBitIndex,
-              BITS_PER_WORD);
+      words[startWordIndex] = BitsUtils.mergeWord(words[startWordIndex], value,
+              fromBitIndex, BITS_PER_WORD);
       // Handle second word (restores invariants)
       words[endWordIndex] = BitsUtils.mergeWord(words[endWordIndex], value >> len1, 0,
               toIndex & BIT_INDEX_MASK);
