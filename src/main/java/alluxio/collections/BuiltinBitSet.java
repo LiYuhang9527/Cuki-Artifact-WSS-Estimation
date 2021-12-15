@@ -37,8 +37,41 @@ public class BuiltinBitSet implements BitSet {
   }
 
   @Override
+  public void set(int startIndex, int length) {
+    mBits.set(startIndex, startIndex + length);
+  }
+
+  @Override
   public void clear(int index) {
     mBits.clear(index);
+  }
+
+  @Override
+  public void clear(int startIndex, int length) {
+    mBits.clear(startIndex, startIndex + length);
+  }
+
+  @Override
+  public long get(int startIndex, int length) {
+    int tag = 0;
+    for (int k = 0; k < length; k++) {
+      // set corresponding bit in tag
+      if (mBits.get(startIndex + k)) {
+        tag |= (1 << k);
+      }
+    }
+    return tag;
+  }
+
+  @Override
+  public void set(int startIndex, int length, long value) {
+    for (int k = 0; k < length; k++) {
+      if ((value & (1L << k)) != 0) {
+        mBits.set(startIndex + k);
+      } else {
+        mBits.clear(startIndex + k);
+      }
+    }
   }
 
   @Override

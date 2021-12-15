@@ -44,28 +44,22 @@ public class SimpleCuckooTable implements CuckooTable {
 
   @Override
   public int readTag(int bucketIndex, int slotIndex) {
-    int tagStartIdx = getTagOffset(bucketIndex, slotIndex);
-    int tag = 0;
-    // TODO(iluoeli): Optimize me, since per bit operation is inefficient
-    for (int k = 0; k < mBitsPerTag; k++) {
-      // set corresponding bit in tag
-      if (mBits.get(tagStartIdx + k)) {
-        tag |= (1 << k);
-      }
-    }
-    return tag;
+    return (int) mBits.get(getTagOffset(bucketIndex, slotIndex), mBitsPerTag);
   }
 
   @Override
   public void writeTag(int bucketIndex, int slotIndex, int tag) {
-    int tagStartIdx = getTagOffset(bucketIndex, slotIndex);
-    for (int k = 0; k < mBitsPerTag; k++) {
-      if ((tag & (1L << k)) != 0) {
-        mBits.set(tagStartIdx + k);
-      } else {
-        mBits.clear(tagStartIdx + k);
-      }
-    }
+    mBits.set(getTagOffset(bucketIndex, slotIndex), mBitsPerTag, tag);
+  }
+
+  @Override
+  public void clear(int bucketIndex, int slotIndex) {
+    mBits.clear(getTagOffset(bucketIndex, slotIndex), mBitsPerTag);
+  }
+
+  @Override
+  public void set(int bucketIndex, int slotIndex) {
+    mBits.set(getTagOffset(bucketIndex, slotIndex), mBitsPerTag);
   }
 
   @Override
@@ -94,7 +88,7 @@ public class SimpleCuckooTable implements CuckooTable {
   public TagPosition deleteTag(int bucketIndex, int tag) {
     for (int slotIndex = 0; slotIndex < mTagsPerBucket; slotIndex++) {
       if (readTag(bucketIndex, slotIndex) == tag) {
-        writeTag(bucketIndex, slotIndex, 0);
+        clear(bucketIndex, slotIndex);
         return new TagPosition(bucketIndex, slotIndex, CuckooStatus.OK);
       }
     }

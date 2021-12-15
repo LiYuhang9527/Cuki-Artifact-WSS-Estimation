@@ -34,6 +34,22 @@ public interface CuckooTable {
   void writeTag(int bucketIndex, int slotIndex, int tag);
 
   /**
+   * Clear the value of tag in specified position.
+   *
+   * @param bucketIndex the bucket index
+   * @param slotIndex the slot in bucket
+   */
+  void clear(int bucketIndex, int slotIndex);
+
+  /**
+   * Set the value of tag in specified position.
+   *
+   * @param bucketIndex the bucket index
+   * @param slotIndex the slot in bucket
+   */
+  void set(int bucketIndex, int slotIndex);
+
+  /**
    * Find a tag in specified bucket and return its position.
    *
    * @param bucketIndex the bucket index

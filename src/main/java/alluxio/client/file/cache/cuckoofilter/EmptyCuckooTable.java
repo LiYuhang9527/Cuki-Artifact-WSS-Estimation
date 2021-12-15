@@ -27,6 +27,12 @@ public class EmptyCuckooTable implements CuckooTable {
   public void writeTag(int bucketIndex, int slotIndex, int tag) {}
 
   @Override
+  public void clear(int bucketIndex, int slotIndex) {}
+
+  @Override
+  public void set(int bucketIndex, int slotIndex) {}
+
+  @Override
   public TagPosition findTag(int bucketIndex, int tag) {
     return new TagPosition(-1, -1, CuckooStatus.FAILURE_KEY_NOT_FOUND);
   }
