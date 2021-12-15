@@ -13,6 +13,7 @@ package alluxio.client.file.cache;
 
 import alluxio.client.file.cache.cuckoofilter.SlidingWindowType;
 import alluxio.client.file.cache.cuckoofilter.size.SizeEncodeType;
+import alluxio.collections.BitSet;
 
 import com.beust.jcommander.IStringConverter;
 import com.beust.jcommander.Parameter;
@@ -64,6 +65,9 @@ public class ShadowCacheParameters extends Parameters {
   @Parameter(names = "--size_bucket_truncate_bits")
   public int mSizeBucketTruncateBits = 0;
 
+  @Parameter(names = "--bitset_type", converter = BitSetTypeConverter.class)
+  public BitSet.BitSetType mBitSetType = BitSet.BitSetType.DEFAULT;
+
   // multiple bloom filter specified parameters
   @Parameter(names = "--num_blooms")
   public int mNumBloom = 4;
@@ -89,6 +93,13 @@ public class ShadowCacheParameters extends Parameters {
     @Override
     public SizeEncodeType convert(String s) {
       return SizeEncodeType.valueOf(s.toUpperCase());
+    }
+  }
+
+  static class BitSetTypeConverter implements IStringConverter<BitSet.BitSetType> {
+    @Override
+    public BitSet.BitSetType convert(String s) {
+      return BitSet.BitSetType.valueOf(s.toUpperCase());
     }
   }
 }

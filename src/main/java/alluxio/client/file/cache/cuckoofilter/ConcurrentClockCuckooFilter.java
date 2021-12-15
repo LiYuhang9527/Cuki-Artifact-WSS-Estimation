@@ -20,7 +20,7 @@ import alluxio.client.file.cache.cuckoofilter.size.SizeEncoder;
 import alluxio.client.file.cache.cuckoofilter.size.TruncateSizeEncoder;
 import alluxio.client.quota.CacheScope;
 import alluxio.collections.BitSet;
-import alluxio.collections.BuiltinBitSet;
+import alluxio.collections.SimpleBitSet;
 import alluxio.util.FormatUtils;
 
 import com.google.common.base.Preconditions;
@@ -184,19 +184,22 @@ public class ConcurrentClockCuckooFilter<T> implements ClockCuckooFilter<T>, Ser
     long totalBuckets = budgetInBits / bitsPerSlot / TAGS_PER_BUCKET;
     long numBuckets = Long.highestOneBit(totalBuckets);
     long numBits = numBuckets * TAGS_PER_BUCKET * bitsPerTag;
-    BitSet bits = new BuiltinBitSet((int) numBits);
+    BitSet bits = BitSet.createBitSet(conf.mBitSetType, (int) numBits);
     CuckooTable table = new SimpleCuckooTable(bits, (int) numBuckets, TAGS_PER_BUCKET, bitsPerTag);
 
-    BitSet clockBits = new BuiltinBitSet((int) (numBuckets * TAGS_PER_BUCKET * bitsPerClock));
+    BitSet clockBits =
+        BitSet.createBitSet(conf.mBitSetType, (int) (numBuckets * TAGS_PER_BUCKET * bitsPerClock));
     CuckooTable clockTable =
         new SimpleCuckooTable(clockBits, (int) numBuckets, TAGS_PER_BUCKET, bitsPerClock);
 
-    BitSet sizeBits = new BuiltinBitSet((int) (numBuckets * TAGS_PER_BUCKET * bitsPerSize));
+    BitSet sizeBits =
+        BitSet.createBitSet(conf.mBitSetType, (int) (numBuckets * TAGS_PER_BUCKET * bitsPerSize));
     CuckooTable sizeTable =
         new SimpleCuckooTable(sizeBits, (int) numBuckets, TAGS_PER_BUCKET, bitsPerSize);
 
     // NOTE: scope may be empty
-    BitSet scopeBits = new BuiltinBitSet((int) (numBuckets * TAGS_PER_BUCKET * bitsPerScope));
+    BitSet scopeBits =
+        BitSet.createBitSet(conf.mBitSetType, (int) (numBuckets * TAGS_PER_BUCKET * bitsPerScope));
     CuckooTable scopeTable = (bitsPerScope == 0) ? new EmptyCuckooTable()
         : new SimpleCuckooTable(scopeBits, (int) numBuckets, TAGS_PER_BUCKET, bitsPerScope);
 
@@ -247,19 +250,19 @@ public class ConcurrentClockCuckooFilter<T> implements ClockCuckooFilter<T>, Ser
     int bitsPerTag = CuckooUtils.optimalBitsPerTag(fpp, loadFactor);
     long numBuckets = CuckooUtils.optimalBuckets(expectedInsertions, loadFactor, TAGS_PER_BUCKET);
     long numBits = numBuckets * TAGS_PER_BUCKET * bitsPerTag;
-    BitSet bits = new BuiltinBitSet((int) numBits);
+    BitSet bits = new SimpleBitSet((int) numBits);
     CuckooTable table = new SimpleCuckooTable(bits, (int) numBuckets, TAGS_PER_BUCKET, bitsPerTag);
 
-    BitSet clockBits = new BuiltinBitSet((int) (numBuckets * TAGS_PER_BUCKET * bitsPerClock));
+    BitSet clockBits = new SimpleBitSet((int) (numBuckets * TAGS_PER_BUCKET * bitsPerClock));
     CuckooTable clockTable =
         new SimpleCuckooTable(clockBits, (int) numBuckets, TAGS_PER_BUCKET, bitsPerClock);
 
-    BitSet sizeBits = new BuiltinBitSet((int) (numBuckets * TAGS_PER_BUCKET * bitsPerSize));
+    BitSet sizeBits = new SimpleBitSet((int) (numBuckets * TAGS_PER_BUCKET * bitsPerSize));
     CuckooTable sizeTable =
         new SimpleCuckooTable(sizeBits, (int) numBuckets, TAGS_PER_BUCKET, bitsPerSize);
 
     // NOTE: scope may be empty
-    BitSet scopeBits = new BuiltinBitSet((int) (numBuckets * TAGS_PER_BUCKET * bitsPerScope));
+    BitSet scopeBits = new SimpleBitSet((int) (numBuckets * TAGS_PER_BUCKET * bitsPerScope));
     CuckooTable scopeTable = (bitsPerScope == 0) ? new EmptyCuckooTable()
         : new SimpleCuckooTable(scopeBits, (int) numBuckets, TAGS_PER_BUCKET, bitsPerScope);
     return new ConcurrentClockCuckooFilter<>(table, clockTable, sizeTable, scopeTable,
@@ -382,7 +385,7 @@ public class ConcurrentClockCuckooFilter<T> implements ClockCuckooFilter<T>, Ser
       // 1. b1 or b2 have at least one empty slot (this is guaranteed until we unlock two buckets);
       // 2. b1 and b2 do not contain duplicated fingerprint.
       mTable.writeTag(pos.getBucketIndex(), pos.getSlotIndex(), tag);
-      mClockTable.writeTag(pos.getBucketIndex(), pos.getSlotIndex(), mMaxAge);
+      mClockTable.set(pos.getBucketIndex(), pos.getSlotIndex());
       mScopeTable.writeTag(pos.getBucketIndex(), pos.getSlotIndex(), scope);
       mSizeEncoder.add(size);
       int encodedSize = mSizeEncoder.encode(size);
@@ -423,7 +426,7 @@ public class ConcurrentClockCuckooFilter<T> implements ClockCuckooFilter<T>, Ser
     boolean found = pos.getStatus() == CuckooStatus.OK;
     if (found && shouldReset) {
       // set C to MAX
-      mClockTable.writeTag(pos.getBucketIndex(), pos.getSlotIndex(), mMaxAge);
+      mClockTable.set(pos.getBucketIndex(), pos.getSlotIndex());
     }
     mLocks.unlockRead(b1, b2);
     return found;
@@ -446,7 +449,7 @@ public class ConcurrentClockCuckooFilter<T> implements ClockCuckooFilter<T>, Ser
       int encodedSize = mSizeTable.readTag(pos.getBucketIndex(), pos.getSlotIndex());
       updateScopeStatistics(scope, -1, -mSizeEncoder.dec(encodedSize));
       // Clear Clock
-      mClockTable.writeTag(pos.getBucketIndex(), pos.getSlotIndex(), 0);
+      mClockTable.clear(pos.getBucketIndex(), pos.getSlotIndex());
       mLocks.unlockWrite(b1, b2);
       return true;
     }
@@ -916,7 +919,7 @@ public class ConcurrentClockCuckooFilter<T> implements ClockCuckooFilter<T>, Ser
           mScopeTable.readTag(from.mBucketIndex, from.mSlotIndex));
       mSizeTable.writeTag(to.mBucketIndex, to.mSlotIndex,
           mSizeTable.readTag(from.mBucketIndex, from.mSlotIndex));
-      mTable.writeTag(from.mBucketIndex, from.mSlotIndex, 0);
+      mTable.clear(from.mBucketIndex, from.mSlotIndex);
       if (depth == 1) {
         // if to.mBucketIndex share the same lock with one of b1 and b2, we should not release its
         // lock
@@ -1064,7 +1067,7 @@ public class ConcurrentClockCuckooFilter<T> implements ClockCuckooFilter<T>, Ser
       } else {
         // evict stale item
         numCleaned++;
-        mTable.writeTag(b, slotIndex, 0);
+        mTable.clear(b, slotIndex);
         mNumItems.decrementAndGet();
         int scope = mScopeTable.readTag(b, slotIndex);
         int encodedSize = mSizeTable.readTag(b, slotIndex);

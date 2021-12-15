@@ -28,6 +28,8 @@ public interface Benchmark {
         return new InsertThroughputBenchmark(benchmarkContext, parameters);
       case TIME_ACCURACY:
         return new TimeBasedAccuracyBenchmark(benchmarkContext, parameters);
+      case TABLE:
+        return new TableBenchmark(benchmarkContext, parameters);
     }
     throw new NoSuchElementException();
   }
@@ -43,6 +45,7 @@ public interface Benchmark {
   }
 
   enum BenchmarkType {
-    ACCURACY, THROUGHPUT, HITRATIO, INSERT_THROUGHPUT, QUERY_THROUGHPUT, TIME_ACCURACY
+    ACCURACY, THROUGHPUT, HITRATIO, INSERT_THROUGHPUT, QUERY_THROUGHPUT, TIME_ACCURACY,
+    TABLE
   }
 }
