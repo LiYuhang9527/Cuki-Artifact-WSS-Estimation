@@ -40,6 +40,8 @@ public class SWAMPSketchShadowCacheManager implements ShadowCache{
   // no scope
   protected TinyTableWithCounters tinyTableWithCounters;
   protected TinyTable tinyTable;
+  protected long putTime;
+  protected long deleteTime;
   // we can use a hashcode to find string's 64bit long
   // and also filed
   // so we can define a hashcode's func
@@ -80,7 +82,7 @@ public class SWAMPSketchShadowCacheManager implements ShadowCache{
 
   @Override
   public boolean put(PageId pageId, int size, CacheScope scope) {
-    info(String.format("try to put page:%s\n",pageId.toString()));
+    //info(String.format("try to put page:%s\n",pageId.toString()));
     int hashcode = mHashFunction.newHasher().putObject(pageId,mFunnel).hash().asInt();
     int prev = cyclicFingerBuffer[curIdx];
     pageReadNum++;
@@ -118,7 +120,6 @@ public class SWAMPSketchShadowCacheManager implements ShadowCache{
 
 
   public boolean delete(int hashcode){
-
     if(tinyTable.containItem(hashcode)) {
       long prevSize = tinyTableWithCounters.GetValue(hashcode);
       tinyTable.RemoveItem(hashcode);

@@ -12,5 +12,5 @@
 package alluxio.client.file.cache.cuckoofilter.size;
 
 public enum SizeEncodeType {
-  NONE, BUCKET
+  NONE, BUCKET, TRUNCATE
 }

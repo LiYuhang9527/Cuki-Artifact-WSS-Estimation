@@ -20,15 +20,18 @@ import alluxio.util.FormatUtils;
 import com.google.common.hash.Funnel;
 import com.google.common.hash.HashFunction;
 import com.google.common.hash.Hashing;
+import com.google.common.math.DoubleMath;
 
+import java.math.RoundingMode;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.atomic.AtomicLong;
 
-public class BitMapWithClockSketchCacheManager implements ShadowCache {
+public class BitMapWithClockSketch2CacheManager implements ShadowCache {
   protected static int mNumBuckets;
   protected static int mBitsPerSize;
   protected static int mBitsPerClock;
+  protected final int numHashFunctions;
   private final AtomicLong mShadowCachePageRead = new AtomicLong(0);
   private final AtomicLong mShadowCachePageHit = new AtomicLong(0);
   private final AtomicLong mShadowCacheByteRead = new AtomicLong(0);
@@ -47,7 +50,7 @@ public class BitMapWithClockSketchCacheManager implements ShadowCache {
   protected int mSizeMask;
   protected long mScopeMask;
 
-  public BitMapWithClockSketchCacheManager(ShadowCacheParameters parameters) {
+  public BitMapWithClockSketch2CacheManager(ShadowCacheParameters parameters) {
     mBitsPerClock = parameters.mClockBits;
     mBitsPerSize = parameters.mSizeBits;
     mWindowSize = parameters.mWindowSize;
@@ -56,7 +59,8 @@ public class BitMapWithClockSketchCacheManager implements ShadowCache {
     long memoryInBits = FormatUtils.parseSpaceSize(parameters.mMemoryBudget) * 8;
     mNumBuckets = (int) (memoryInBits
         / (parameters.mClockBits + parameters.mSizeBits + parameters.mScopeBits));
-    mHashFunction = Hashing.murmur3_32(32713);
+    this.numHashFunctions = parameters.mNumHashFunctions;
+    mHashFunction = Hashing.murmur3_128(32713);
     clockTable = new int[mNumBuckets];
     sizeTable = new int[mNumBuckets];
     scopeTable = new long[mNumBuckets];
@@ -69,19 +73,29 @@ public class BitMapWithClockSketchCacheManager implements ShadowCache {
 
   @Override
   public boolean put(PageId pageId, int size, CacheScope scope) {
-    int pos = bucketIndex(pageId, mHashFunction);
+    long hash64 = hashObject(pageId, mHashFunction);
+    int hash1 = (int) hash64;
+    int hash2 = (int) (hash64 >>> 32);
     long scopefp = encodeScope(scope);
-    if (clockTable[pos] == 0) {
-      sizeTable[pos] = size & mSizeMask;
-      scopeTable[pos] = scopefp & mScopeMask;
-      clockTable[pos] = (1 << mBitsPerClock) - 1;
-      mBucketsSet.incrementAndGet();
-      mTotalSize.addAndGet(size);
-    } else if (mBitsPerScope > 0 && scopeTable[pos] == scopefp) { // hit
-      clockTable[pos] = (1 << mBitsPerClock) - 1;
-    } else { // collision
-      // no-op
+    for (int i = 1; i <= numHashFunctions; i++) {
+      int combinedHash = hash1 + i * hash2;
+      if (combinedHash < 0) {
+        combinedHash = ~combinedHash;
+      }
+      int pos = combinedHash % mNumBuckets;
+      if (clockTable[pos] == 0) {
+        sizeTable[pos] = size & mSizeMask;
+        scopeTable[pos] = scopefp & mScopeMask;
+        clockTable[pos] = (1 << mBitsPerClock) - 1;
+        mBucketsSet.incrementAndGet();
+        mTotalSize.addAndGet(size);
+      } else if (mBitsPerScope > 0 && scopeTable[pos] == scopefp) { // hit
+        clockTable[pos] = (1 << mBitsPerClock) - 1;
+      } else { // collision
+        // no-op
+      }
     }
+
     return true;
   }
 
@@ -90,12 +104,25 @@ public class BitMapWithClockSketchCacheManager implements ShadowCache {
     mShadowCachePageRead.incrementAndGet();
     mShadowCacheByteRead.addAndGet(bytesToRead);
     long scopefp = encodeScope(scope);
-    int pos = bucketIndex(pageId, mHashFunction);
-    if (clockTable[pos] == 0 || (mBitsPerScope > 0 && scopefp != scopeTable[pos])) {
-      return 0;
+    long hash64 = hashObject(pageId, mHashFunction);
+    int hash1 = (int) hash64;
+    int hash2 = (int) (hash64 >>> 32);
+    int[] positions = new int[numHashFunctions];
+    for (int i = 1; i <= numHashFunctions; i++) {
+      int combinedHash = hash1 + i * hash2;
+      if (combinedHash < 0) {
+        combinedHash = ~combinedHash;
+      }
+      int pos = combinedHash % mNumBuckets;
+      positions[i - 1] = pos;
+      if (clockTable[pos] == 0 || (mBitsPerScope > 0 && scopefp != scopeTable[pos])) {
+        return 0;
+      }
     }
     // reset CLOCK
-    clockTable[pos] = (1 << mBitsPerClock) - 1;
+    for (int pos : positions) {
+      clockTable[pos] = (1 << mBitsPerClock) - 1;
+    }
     mShadowCachePageHit.incrementAndGet();
     mShadowCacheByteHit.addAndGet(bytesToRead);
     return bytesToRead;
@@ -145,7 +172,11 @@ public class BitMapWithClockSketchCacheManager implements ShadowCache {
     if (zeros == 0) {
       pages = mNumBuckets * Math.log(mNumBuckets);
     } else {
-      pages = -mNumBuckets * Math.log(zeros / (double) mNumBuckets);
+      // pages = -mNumBuckets * Math.log(zeros / (double) mNumBuckets);
+      long ones = Math.min(mBucketsSet.get(), mNumBuckets - 1);
+      double fractionOfBitsSet = (double) ones / mNumBuckets;
+      pages = DoubleMath.roundToLong(
+          -Math.log1p(-fractionOfBitsSet) * mNumBuckets / numHashFunctions, RoundingMode.HALF_UP);
     }
     return (long) (pages); // 源码里并没有/hashNum，原作者也没考虑
   }
@@ -164,7 +195,11 @@ public class BitMapWithClockSketchCacheManager implements ShadowCache {
     if (zeros == 0) {
       pages = mNumBuckets * Math.log(mNumBuckets);
     } else {
-      pages = -mNumBuckets * Math.log(zeros / (double) mNumBuckets);
+      // pages = -mNumBuckets * Math.log(zeros / (double) mNumBuckets);
+      ones = Math.min(ones, mNumBuckets - 1);
+      double fractionOfBitsSet = (double) ones / mNumBuckets;
+      pages = DoubleMath.roundToLong(
+          -Math.log1p(-fractionOfBitsSet) * mNumBuckets / numHashFunctions, RoundingMode.HALF_UP);
     }
     return (long) (pages); // 源码里并没有/hashNum，原作者也没考虑
   }
@@ -234,6 +269,10 @@ public class BitMapWithClockSketchCacheManager implements ShadowCache {
 
   private int bucketIndex(PageId pageId, HashFunction hashFunc) {
     return Math.abs(hashFunc.newHasher().putObject(pageId, mFunnel).hash().asInt() % mNumBuckets);
+  }
+
+  private long hashObject(PageId pageId, HashFunction hashFunc) {
+    return hashFunc.newHasher().putObject(pageId, mFunnel).hash().asLong();
   }
 
   private long encodeScope(CacheScope scope) {

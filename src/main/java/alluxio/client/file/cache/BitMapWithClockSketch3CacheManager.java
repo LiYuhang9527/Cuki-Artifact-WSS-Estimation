@@ -25,7 +25,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.atomic.AtomicLong;
 
-public class BitMapWithClockSketchCacheManager implements ShadowCache {
+public class BitMapWithClockSketch3CacheManager implements ShadowCache {
   protected static int mNumBuckets;
   protected static int mBitsPerSize;
   protected static int mBitsPerClock;
@@ -47,7 +47,7 @@ public class BitMapWithClockSketchCacheManager implements ShadowCache {
   protected int mSizeMask;
   protected long mScopeMask;
 
-  public BitMapWithClockSketchCacheManager(ShadowCacheParameters parameters) {
+  public BitMapWithClockSketch3CacheManager(ShadowCacheParameters parameters) {
     mBitsPerClock = parameters.mClockBits;
     mBitsPerSize = parameters.mSizeBits;
     mWindowSize = parameters.mWindowSize;
@@ -171,26 +171,19 @@ public class BitMapWithClockSketchCacheManager implements ShadowCache {
 
   @Override
   public long getShadowCacheBytes() {
-    double pages = getShadowCachePages();
-    double avePageSize = mTotalSize.get() / (double) mBucketsSet.get();
-    return (long) (pages * avePageSize);
+    return mTotalSize.get();
   }
 
   @Override
   public long getShadowCacheBytes(CacheScope scope) {
-    long ones = 0;
-    double totalSize = 0.;
+    long totalSize = 0;
     long scopefp = encodeScope(scope);
     for (int i = 0; i < mNumBuckets; ++i) {
       if (clockTable[i] > 0 && scopeTable[i] == scopefp) {
-        ones++;
         totalSize += sizeTable[i];
       }
     }
-    long zeros = mNumBuckets - ones;
-    double pages = -mNumBuckets * Math.log(zeros / (double) mNumBuckets);
-    double avePageSize = totalSize / (double) ones;
-    return (long) (pages * avePageSize);
+    return totalSize;
   }
 
   @Override
