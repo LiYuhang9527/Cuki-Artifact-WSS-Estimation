@@ -36,10 +36,9 @@ public class ShadowCacheParameters extends Parameters {
 
   @Parameter(names = "--fpr")
   public double mFpr = 0.01;
-
   // clock cuckoo specified parameters
   @Parameter(names = "--size_bits")
-  public int mSizeBits = 20;
+  public int mSizeBits = 16;
 
   @Parameter(names = "--scope_bits")
   public int mScopeBits = 8;

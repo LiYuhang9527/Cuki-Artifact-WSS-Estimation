@@ -166,6 +166,7 @@ public class AccuracyBenchmark implements Benchmark {
     double pageHitAREFinal = Math.abs(estPageHitRatio / realPageHitRatio - 1.0);
     double byteHitAREFinal = Math.abs(estByteHitRatio / realByteHitRatio - 1.0);
 
+    System.out.println(mShadowCache.getSummary());
     System.out.println();
     System.out.println("TotalTime(ms)\t" + totalDuration);
     System.out.println();
