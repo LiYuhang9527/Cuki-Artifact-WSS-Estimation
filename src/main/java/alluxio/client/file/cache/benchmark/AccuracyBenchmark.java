@@ -190,6 +190,10 @@ public class AccuracyBenchmark implements Benchmark {
     System.out.printf("%d/%d=%.4f%%\t%d/%d=%.4f%%\t%d/%d=%.4f%%\n", byteFP, totalBytes,
         byteFP * 100 / (double) totalBytes, byteFN, totalBytes, byteFN * 100 / (double) totalBytes,
         byteFP + byteFN, totalBytes, (byteFP + byteFN) * 100 / (double) totalBytes);
+
+    if (mBenchmarkParameters.mVerbose) {
+      System.out.println(mShadowCache.dumpDebugInfo());
+    }
   }
 
   @Override

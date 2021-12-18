@@ -23,4 +23,6 @@ public interface ISizeEncoder {
   public void access(int size);
 
   public int encode(int size);
+
+  String dumpInfo();
 }

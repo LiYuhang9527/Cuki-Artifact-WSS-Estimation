@@ -99,4 +99,6 @@ public interface ClockCuckooFilter<T> {
    * @return the size of items of specified scope in this cuckoo filter
    */
   long approximateElementSize(CacheScope scopeInfo);
+
+  String dumpDebugInfo();
 }

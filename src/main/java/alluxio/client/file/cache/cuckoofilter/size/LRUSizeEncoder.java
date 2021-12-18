@@ -152,5 +152,10 @@ public class LRUSizeEncoder implements ISizeEncoder {
       return size >> (totalBits - numBucketBits);
     }
   }
+
+  @Override
+  public String dumpInfo() {
+    return "";
+  }
 }
 

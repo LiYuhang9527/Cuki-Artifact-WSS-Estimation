@@ -155,6 +155,10 @@ public interface ShadowCache {
    */
   String getSummary();
 
+  default String dumpDebugInfo() {
+    return "";
+  }
+
   enum ShadowCacheType {
     MBF, CCF, IDEAL, BMC, BMS, BMC2, BMC3, SWAMP
   }

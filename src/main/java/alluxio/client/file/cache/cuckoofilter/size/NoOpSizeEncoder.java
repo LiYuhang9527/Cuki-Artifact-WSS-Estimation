@@ -54,5 +54,10 @@ public class NoOpSizeEncoder implements ISizeEncoder {
   public int encode(int size) {
     return size & sizeMask;
   }
+
+  @Override
+  public String dumpInfo() {
+    return "";
+  }
 }
 
