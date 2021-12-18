@@ -165,4 +165,9 @@ public class ClockCuckooShadowCacheManager implements ShadowCache {
   public String getSummary() {
     return "ClockCuckooShadowCache:\n" + mFilter.getSummary();
   }
+
+  @Override
+  public String dumpDebugInfo() {
+    return mFilter.dumpDebugInfo();
+  }
 }

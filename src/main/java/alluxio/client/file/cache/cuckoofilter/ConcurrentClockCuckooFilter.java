@@ -14,6 +14,7 @@ package alluxio.client.file.cache.cuckoofilter;
 import alluxio.Constants;
 import alluxio.client.file.cache.ShadowCacheParameters;
 import alluxio.client.file.cache.cuckoofilter.size.ISizeEncoder;
+import alluxio.client.file.cache.cuckoofilter.size.LogSizeEncoder;
 import alluxio.client.file.cache.cuckoofilter.size.NoOpSizeEncoder;
 import alluxio.client.file.cache.cuckoofilter.size.SizeEncodeType;
 import alluxio.client.file.cache.cuckoofilter.size.SizeEncoder;
@@ -217,6 +218,10 @@ public class ConcurrentClockCuckooFilter<T> implements ClockCuckooFilter<T>, Ser
     } else if (conf.mSizeEncodeType == SizeEncodeType.TRUNCATE) {
       sizeEncoder = new TruncateSizeEncoder(conf.mNumSizeBucketBits + conf.mSizeBucketTruncateBits,
           conf.mSizeBucketTruncateBits);
+    } else if (conf.mSizeEncodeType == SizeEncodeType.LOG) {
+      sizeEncoder =
+              new LogSizeEncoder(conf.mNumSizeBucketBits,
+                      conf.mSizeBucketFirst, conf.mSizeBucketBase, conf.mSizeBucketBias);
     } else {
       sizeEncoder = new NoOpSizeEncoder(conf.mNumSizeBucketBits + conf.mSizeBucketBits);
     }
@@ -584,6 +589,11 @@ public class ConcurrentClockCuckooFilter<T> implements ClockCuckooFilter<T>, Ser
    */
   public int getBitsPerScope() {
     return mScopeTable.getBitsPerTag();
+  }
+
+  @Override
+  public String dumpDebugInfo() {
+    return mSizeEncoder.dumpInfo();
   }
 
   /**
