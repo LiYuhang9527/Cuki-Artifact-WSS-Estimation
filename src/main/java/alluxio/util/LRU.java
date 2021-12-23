@@ -38,7 +38,9 @@ public class LRU {
         Node res = head;
         idToNode.remove(head.item);
         head = head.next;
-        head.prev = null;
+        if(head!=null){
+            head.prev = null;
+        }
         size--;
         return res.item;
     }
@@ -49,7 +51,9 @@ public class LRU {
         } else {
             if(node==head){
                 head = head.next;
-                head.prev = null;
+                if(head!=null){
+                    head.prev = null;
+                }
             }else if(node == tail){
                 return true;
             } else{
@@ -89,7 +93,9 @@ public class LRU {
         }else{
             if(node==head){
                 head = head.next;
-                head.prev = null;
+                if(head!=null){
+                    head.prev = null;
+                }
             }else if(node == tail){
                 tail = tail.prev;
                 tail.next = null;

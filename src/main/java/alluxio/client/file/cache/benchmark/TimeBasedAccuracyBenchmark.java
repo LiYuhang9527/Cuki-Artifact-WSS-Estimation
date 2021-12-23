@@ -190,8 +190,12 @@ public class TimeBasedAccuracyBenchmark implements Benchmark {
         realCachePagesHit, realCacheBytesHit, estCachePagesHit, estCacheBytesHit);
     // accumulate error
     errCnt++;
-    numARE += Math.abs(estNum / (double) realNum - 1.0);
-    byteARE += Math.abs(estByte / (double) realByte - 1.0);
+    if(realNum != 0){
+      numARE += Math.abs(estNum / (double) realNum - 1.0);
+    }
+    if(realByte != 0){
+      byteARE += Math.abs(estByte / (double) realByte - 1.0);
+    }
     if (estCacheBytesHit != 0) {
       pageHitARE += Math.abs(realCachePagesHit / (double) estCachePagesHit - 1.0);
       byteHitARE += Math.abs(realCacheBytesHit / (double) estCacheBytesHit - 1.0);
