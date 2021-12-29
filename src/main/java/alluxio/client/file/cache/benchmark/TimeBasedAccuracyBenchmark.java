@@ -50,7 +50,7 @@ public class TimeBasedAccuracyBenchmark implements Benchmark {
   long byteFP = 0; // number of bytes are seen as existent in cache but in fact not
   long byteFN = 0; // number of bytes are seen as inexistent in cache but in fact existed
   long totalBytes = 0; // number of bytes passed the shadow cache
-  private Dataset<String> mDataset;
+  private EntryGenerator<String> mDataset;
 
   public TimeBasedAccuracyBenchmark(BenchmarkContext benchmarkContext,
       BenchmarkParameters benchmarkParameters) {
@@ -81,7 +81,7 @@ public class TimeBasedAccuracyBenchmark implements Benchmark {
         generator = new RandomEntryGenerator(mBenchmarkParameters.mMaxEntries, 1,
             (int) mBenchmarkParameters.mNumUniqueEntries + 1);
     }
-    mDataset = new GeneralDataset<>(generator, (int) mBenchmarkParameters.mWindowSize);
+    mDataset = generator;
   }
 
   @Override
@@ -133,6 +133,8 @@ public class TimeBasedAccuracyBenchmark implements Benchmark {
       int nread2 = mIdealShadowCache.get(item, entry.getSize(), entry.getScopeInfo());
       if (nread2 <= 0) {
         mIdealShadowCache.put(item, entry.getSize(), entry.getScopeInfo());
+      } else {
+        entry.setSize(nread2);
       }
 
       // update shadow cache

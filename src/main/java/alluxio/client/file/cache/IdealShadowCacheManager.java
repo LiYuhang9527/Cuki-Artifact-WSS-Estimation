@@ -87,21 +87,21 @@ public class IdealShadowCacheManager implements ShadowCache {
   public int get(PageId pageId, int bytesToRead, CacheScope scope) {
     lock.lock();
     // aging();
-    mShadowCachePageRead.incrementAndGet();
-    mShadowCacheByteRead.addAndGet(bytesToRead);
+    int nread = 0;
     ItemAttribute attribute = itemToAttribute.get(pageId);
     if (attribute != null && attribute.timeStamp >= (getCurrentTimestamp() - windowSize)) {
       // on cache hit
       mShadowCachePageHit.incrementAndGet();
-      mShadowCacheByteHit.addAndGet(bytesToRead);
+      bytesToRead = attribute.size;
+      nread = bytesToRead;
+      mShadowCacheByteHit.addAndGet(nread);
       attribute.timeStamp = getCurrentTimestamp();
       itemLRU.put(pageId);
-      assert bytesToRead == itemToAttribute.get(pageId).size;
-      lock.unlock();
-      return bytesToRead;
     }
     lock.unlock();
-    return 0;
+    mShadowCachePageRead.incrementAndGet();
+    mShadowCacheByteRead.addAndGet(bytesToRead);
+    return nread;
   }
 
   @Override
