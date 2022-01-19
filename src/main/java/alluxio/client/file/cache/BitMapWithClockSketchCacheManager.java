@@ -67,6 +67,7 @@ public class BitMapWithClockSketchCacheManager implements ShadowCache {
     mScopeMask = (mBitsPerScope < 64) ? (1 << mBitsPerScope) - 1 : -1L;
     long windowMs = parameters.mWindowSize;
     long agingPeriod = windowMs >> mBitsPerClock;
+    System.out.println(agingPeriod);
     mScheduler.scheduleAtFixedRate(this::aging, agingPeriod, agingPeriod, MILLISECONDS);
   }
 
@@ -183,6 +184,7 @@ public class BitMapWithClockSketchCacheManager implements ShadowCache {
   public long getShadowCacheBytes() {
     double pages = getShadowCachePages();
     double avePageSize = mTotalSize.get() / (double) mBucketsSet.get();
+    // System.out.printf("[+] pages:%d bucket1Num:%d totalsize:%d\n",(long)pages,mBucketsSet.get(),mTotalSize.get());
     return (long) (pages * avePageSize);
   }
 

@@ -11,18 +11,15 @@
 
 package alluxio.client.file.cache.benchmark;
 
-import alluxio.client.file.cache.dataset.generator.EntryGenerator;
-import alluxio.client.file.cache.dataset.generator.MSREntryGenerator;
-import alluxio.client.file.cache.dataset.generator.RandomEntryGenerator;
-import alluxio.client.file.cache.dataset.generator.SequentialEntryGenerator;
-import alluxio.client.file.cache.dataset.generator.TwitterEntryGenerator;
-import alluxio.client.file.cache.dataset.generator.YCSBEntryGenerator;
+import alluxio.client.file.cache.dataset.generator.*;
 
 public class BenchmarkUtils {
   public static EntryGenerator<String> createGenerator(BenchmarkParameters conf) {
     switch (conf.mDataset) {
       case "sequential":
         return new SequentialEntryGenerator(conf.mMaxEntries, 1, (int) conf.mNumUniqueEntries + 1);
+      case "multi":
+        return new MultiScopeEntryGenerator(conf.mTrace);
       case "msr":
         return new MSREntryGenerator(conf.mTrace);
       case "twitter":

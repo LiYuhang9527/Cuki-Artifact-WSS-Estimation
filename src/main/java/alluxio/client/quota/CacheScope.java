@@ -115,6 +115,10 @@ public class CacheScope {
     return MoreObjects.toStringHelper(this).add("id", mId.substring(0, mLength)).toString();
   }
 
+  public String getId(){
+    return this.mId;
+  }
+
   /**
    * Level of a scope.
    */

@@ -120,7 +120,7 @@ public class TimeBasedAccuracyBenchmark implements Benchmark {
       long millisToWait = ((entry.getTimestamp() - firstEntryArrivalTime) * 1000 - elapsedMillis);
       if (millisToWait > 0) {
         try {
-          Thread.sleep(millisToWait);
+          Thread.sleep(millisToWait/mBenchmarkParameters.mTimeDivisor);
         } catch (Exception e) {
           e.printStackTrace();
           System.exit(1);

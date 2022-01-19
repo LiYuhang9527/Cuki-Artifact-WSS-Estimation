@@ -26,7 +26,7 @@ public class IdealShadowCacheManager implements ShadowCache {
   private final LRU itemLRU;
   private final HashMap<PageId, ItemAttribute> itemToAttribute;
   private final HashMap<CacheScope, Integer> scopeToNumber;
-  private final HashMap<CacheScope, Integer> scopeToSize;
+  private final HashMap<CacheScope, Long> scopeToSize;
 
   private final AtomicLong mShadowCachePageRead = new AtomicLong(0);
   private final AtomicLong mShadowCachePageHit = new AtomicLong(0);
@@ -71,7 +71,7 @@ public class IdealShadowCacheManager implements ShadowCache {
     if (attribute == null) {
       itemToAttribute.put(pageId, new ItemAttribute(size, scope, getCurrentTimestamp()));
       success = itemLRU.put(pageId);
-      scopeToSize.put(scope, scopeToSize.getOrDefault(scope, 0) + size);
+      scopeToSize.put(scope, scopeToSize.getOrDefault(scope, 0L) + size);
       scopeToNumber.put(scope, scopeToNumber.getOrDefault(scope, 0) + 1);
       realSize += size;
     } else {
@@ -128,7 +128,7 @@ public class IdealShadowCacheManager implements ShadowCache {
           scopeToNumber.put(itemAttribute.scope,
               scopeToNumber.getOrDefault(itemAttribute.scope, 0) - 1);
           scopeToSize.put(itemAttribute.scope,
-              scopeToSize.getOrDefault(itemAttribute.scope, 0) - itemAttribute.size);
+              scopeToSize.getOrDefault(itemAttribute.scope, 0L) - itemAttribute.size);
           itemToAttribute.remove(item);
         } else {
           break;
