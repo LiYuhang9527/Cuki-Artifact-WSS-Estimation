@@ -33,7 +33,7 @@ public interface Benchmark {
       case MULTI:
         return new MultiScopeAccuracyBenchmark(benchmarkContext,parameters);
       case ADAPTION:
-        return new cacheAdaptionBenchmark(benchmarkContext,parameters);
+        return new CacheAdaptionBenchmark(benchmarkContext,parameters);
       case TIME_MULTI:
         return new MultiScopeTimeBasedBenchmark(benchmarkContext,parameters);
     }
