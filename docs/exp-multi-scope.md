@@ -25,7 +25,7 @@ Scope是来源于数据集名字，如来自prxy_0数据集的数据，scope就�
 1. 按照上面数据集格式定义一个新的`EntryGenerator`，读取上述格式的数据集
 
 2. CCF要设置SCOPE_BITS为恰好能够装下所有scope的大小，如MSR-4对应设置scope_bits为2；
-其他方法都是一个scope对应一个shadowcache（在测试代码里判断一个scope，然后装入对应scope），每个shadowcache大小相等，所有方法中内存大小相等
+其他方法都是一个scope对应一个shadowcache（在测试代码里判断一个scope，然后装入对应scope,直接在分配内存的时候除以4），每个shadowcache大小相等，所有方法中内存大小相等
 
 3. 写一个多Scope的测试代码，类似于TimeBasedAccuracyBenchmark，不过分scope各自统计每个scope的各种指标
 

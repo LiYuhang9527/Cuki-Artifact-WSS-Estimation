@@ -398,7 +398,8 @@ public class ConcurrentClockCuckooFilter<T> implements ClockCuckooFilter<T>, Ser
       // update statistics
       mNumItems.incrementAndGet();
       mTotalBytes.addAndGet(encodedSize);
-      updateScopeStatistics(scope, 1, encodedSize);
+      //updateScopeStatistics(scope, 1, encodedSize);
+      updateScopeStatistics(scope, 1, size);
       mLocks.unlockWrite(b1, b2);
       return true;
     }
