@@ -43,7 +43,8 @@ public interface ShadowCache {
         return new SWAMPSketchShadowCacheManager(parameters);
       case CCF:
       default:
-        parameters.mAgeLevels = (1 << parameters.mClockBits);
+        // NOTE(iluoeli): should be (2^s-1) to avoid false negative
+        parameters.mAgeLevels = (1 << parameters.mClockBits) - 1;
         return new ClockCuckooShadowCacheManager(parameters);
     }
   }

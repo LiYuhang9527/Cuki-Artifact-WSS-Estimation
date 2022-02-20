@@ -109,11 +109,11 @@ public class AccuracyBenchmark implements Benchmark {
 
       // membership statistics
       if (nread > nread2) {
-        // false positive
+        // false positive: hit in shadow cache (nread > 0), but miss in real cache (nread2 == 0)
         numFP++;
         byteFP += entry.getSize();
       } else if (nread < nread2) {
-        // false negative
+        // false negative: miss in shadow cache (nread == 0), but hit in real cache (nread2 > 0)
         numFN++;
         byteFN += entry.getSize();
       }
