@@ -87,6 +87,37 @@ public class ChainHelper {
 		}
 		return toArray(newChain);
 	}
+	public static long[]  removeValue(long[] chain, long fingerprint)
+	{
+		int idx = findFingerprint(chain,fingerprint);
+		if(idx<0)
+			throw new RuntimeException("cannot find fingerprint");
+		ArrayList<Long> newChain = new ArrayList<Long>(chain.length);
+
+		// all items that are not
+		int i;
+		for(i =0; i<idx; i++)
+		{
+			newChain.add(chain[i]);
+		}
+		i = idx+1;
+		// remove old counter.
+		for(;i<chain.length;i++)
+		{
+			if(isFingerprint(chain[i])){
+				break;
+			}
+		}
+
+		// pack back all other
+		for(;i<chain.length;i++)
+		{
+			newChain.add(chain[i]);
+		}
+		return toArray(newChain);
+	}
+
+
 	private static ArrayList<Long> packNewCounterToChain(int itemSize,
 			ArrayList<Long> newChain, long value) {
 		// pack back the value into the chain. 

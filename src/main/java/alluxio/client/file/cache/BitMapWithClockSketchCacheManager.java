@@ -24,6 +24,8 @@ import com.google.common.hash.Hashing;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
 
 public class BitMapWithClockSketchCacheManager implements ShadowCache {
   protected static int mNumBuckets;
@@ -46,6 +48,7 @@ public class BitMapWithClockSketchCacheManager implements ShadowCache {
   protected long[] scopeTable; // stores the fingerprint of scope
   protected int mSizeMask;
   protected long mScopeMask;
+  private final Lock lock = new ReentrantLock();
 
   public BitMapWithClockSketchCacheManager(ShadowCacheParameters parameters) {
     mBitsPerClock = parameters.mClockBits;
@@ -64,6 +67,7 @@ public class BitMapWithClockSketchCacheManager implements ShadowCache {
     mScopeMask = (mBitsPerScope < 64) ? (1 << mBitsPerScope) - 1 : -1L;
     long windowMs = parameters.mWindowSize;
     long agingPeriod = windowMs >> mBitsPerClock;
+    System.out.println(agingPeriod);
     mScheduler.scheduleAtFixedRate(this::aging, agingPeriod, agingPeriod, MILLISECONDS);
   }
 
@@ -71,6 +75,7 @@ public class BitMapWithClockSketchCacheManager implements ShadowCache {
   public boolean put(PageId pageId, int size, CacheScope scope) {
     int pos = bucketIndex(pageId, mHashFunction);
     long scopefp = encodeScope(scope);
+    lock.lock();
     if (clockTable[pos] == 0) {
       sizeTable[pos] = size & mSizeMask;
       scopeTable[pos] = scopefp & mScopeMask;
@@ -82,6 +87,7 @@ public class BitMapWithClockSketchCacheManager implements ShadowCache {
     } else { // collision
       // no-op
     }
+    lock.unlock();
     return true;
   }
 
@@ -91,11 +97,14 @@ public class BitMapWithClockSketchCacheManager implements ShadowCache {
     mShadowCacheByteRead.addAndGet(bytesToRead);
     long scopefp = encodeScope(scope);
     int pos = bucketIndex(pageId, mHashFunction);
+    lock.lock();
     if (clockTable[pos] == 0 || (mBitsPerScope > 0 && scopefp != scopeTable[pos])) {
+      lock.unlock();
       return 0;
     }
     // reset CLOCK
     clockTable[pos] = (1 << mBitsPerClock) - 1;
+    lock.unlock();
     mShadowCachePageHit.incrementAndGet();
     mShadowCacheByteHit.addAndGet(bytesToRead);
     return bytesToRead;
@@ -104,7 +113,9 @@ public class BitMapWithClockSketchCacheManager implements ShadowCache {
   @Override
   public boolean delete(PageId pageId) {
     int pos = bucketIndex(pageId, mHashFunction);
+    lock.lock();
     clockTable[pos] = 0;
+    lock.unlock();
     return false;
   }
 
@@ -173,6 +184,7 @@ public class BitMapWithClockSketchCacheManager implements ShadowCache {
   public long getShadowCacheBytes() {
     double pages = getShadowCachePages();
     double avePageSize = mTotalSize.get() / (double) mBucketsSet.get();
+    // System.out.printf("[+] pages:%d bucket1Num:%d totalsize:%d\n",(long)pages,mBucketsSet.get(),mTotalSize.get());
     return (long) (pages * avePageSize);
   }
 

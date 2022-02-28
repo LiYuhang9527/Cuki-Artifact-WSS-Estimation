@@ -34,12 +34,12 @@ public class ShadowCacheParameters extends Parameters {
   @Parameter(names = "--clock_bits")
   public int mClockBits = 4;
 
-  @Parameter(names = "--fpr")
-  public double mFpr = 0.01;
+  @Parameter(names = "--verbose")
+  public boolean mVerbose = false;
 
   // clock cuckoo specified parameters
   @Parameter(names = "--size_bits")
-  public int mSizeBits = 20;
+  public int mSizeBits = 16;
 
   @Parameter(names = "--scope_bits")
   public int mScopeBits = 8;
@@ -67,6 +67,16 @@ public class ShadowCacheParameters extends Parameters {
 
   @Parameter(names = "--bitset_type", converter = BitSetTypeConverter.class)
   public BitSet.BitSetType mBitSetType = BitSet.BitSetType.DEFAULT;
+
+  // for log size encoder
+  @Parameter(names = "--size_bucket_first")
+  public int mSizeBucketFirst = 512;
+
+  @Parameter(names = "--size_bucket_base")
+  public int mSizeBucketBase = 2;
+
+  @Parameter(names = "--size_bucket_bias")
+  public int mSizeBucketBias = 1;
 
   // multiple bloom filter specified parameters
   @Parameter(names = "--num_blooms")

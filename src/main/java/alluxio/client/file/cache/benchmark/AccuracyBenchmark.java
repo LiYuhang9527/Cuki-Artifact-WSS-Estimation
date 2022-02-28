@@ -109,11 +109,11 @@ public class AccuracyBenchmark implements Benchmark {
 
       // membership statistics
       if (nread > nread2) {
-        // false positive
+        // false positive: hit in shadow cache (nread > 0), but miss in real cache (nread2 == 0)
         numFP++;
         byteFP += entry.getSize();
       } else if (nread < nread2) {
-        // false negative
+        // false negative: miss in shadow cache (nread == 0), but hit in real cache (nread2 > 0)
         numFN++;
         byteFN += entry.getSize();
       }
@@ -166,6 +166,7 @@ public class AccuracyBenchmark implements Benchmark {
     double pageHitAREFinal = Math.abs(estPageHitRatio / realPageHitRatio - 1.0);
     double byteHitAREFinal = Math.abs(estByteHitRatio / realByteHitRatio - 1.0);
 
+    System.out.println(mShadowCache.getSummary());
     System.out.println();
     System.out.println("TotalTime(ms)\t" + totalDuration);
     System.out.println();
@@ -189,6 +190,10 @@ public class AccuracyBenchmark implements Benchmark {
     System.out.printf("%d/%d=%.4f%%\t%d/%d=%.4f%%\t%d/%d=%.4f%%\n", byteFP, totalBytes,
         byteFP * 100 / (double) totalBytes, byteFN, totalBytes, byteFN * 100 / (double) totalBytes,
         byteFP + byteFN, totalBytes, (byteFP + byteFN) * 100 / (double) totalBytes);
+
+    if (mBenchmarkParameters.mVerbose) {
+      System.out.println(mShadowCache.dumpDebugInfo());
+    }
   }
 
   @Override

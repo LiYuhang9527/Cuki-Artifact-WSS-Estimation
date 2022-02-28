@@ -56,5 +56,10 @@ public class TruncateSizeEncoder implements ISizeEncoder {
   public int encode(int size) {
     return (Math.min(size, sizeMask)) >> truncateSizeBits;
   }
+
+  @Override
+  public String dumpInfo() {
+    return "";
+  }
 }
 

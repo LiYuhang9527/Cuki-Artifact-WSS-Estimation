@@ -20,13 +20,38 @@ public class TinyTable extends SimpleBitwiseArray
 	public long[] IStar;
 	// anchor distance array.
 	public short[] A;
+
 	
 	// used as an object pool for the rank indexing technique. In order to prevent dynamic memory allocation. 
+	private int mBitsPerSize;
+	private int mBitsPerItem;
+	private long sizeMask;
 	private final byte[] offsets;
 	private final byte[] chain;
+	private long maxIter = 500;
+	public long findEmptyTime;
+	public long addItemTime;
 	static int chainLength = 64;
 	//Hash function with an object pool... recycle! 
 	GreenHashMaker hashFunc;
+
+	public TinyTable(int itemsize,int bitsPerSize, int bucketcapacity,int nrBuckets)
+	{
+		super(bucketcapacity*nrBuckets, itemsize+bitsPerSize,bucketcapacity);
+		this.mBitsPerSize =bitsPerSize;
+		this.mBitsPerItem = itemsize;
+		this.sizeMask = (1L <<bitsPerSize)-1;
+		this.maxAdditionalSize = 0;
+		this.nrItems = 0;
+		I0 = new long[nrBuckets];
+		IStar = new long[nrBuckets];
+		A = new short[nrBuckets];
+		hashFunc = new GreenHashMaker(itemsize+maxAdditionalSize, nrBuckets, chainLength);
+		offsets = new byte[chainLength];
+		chain = new byte[chainLength];
+
+		this.BucketCapacity = bucketcapacity;
+	}
 
 	public TinyTable(int itemsize, int bucketcapacity,int nrBuckets)
 	{
@@ -43,53 +68,44 @@ public class TinyTable extends SimpleBitwiseArray
 		this.BucketCapacity = bucketcapacity;
 	}
 
-
-	public long getRandomFp(FingerPrintAux fingerPrintAux){
-		for(int i=0;i<chainLength;i++){
-			if(chain[i]<0)
-				break;
-			long fpToCompare = this.Get(fingerPrintAux.bucketId, chain[i]);
-			if(fpToCompare != fingerPrintAux.fingerprint && fpToCompare!=0)
-				return fpToCompare;
-		}
-		return -1;
+	public FingerPrintAux makeHashWithSize(long item,int size){
+		FingerPrintAux fingerPrintAux = hashFunc.createHash(item);
+		fingerPrintAux.fingerprint = (fingerPrintAux.fingerprint<<mBitsPerSize)|size;
+		return fingerPrintAux;
 	}
 
-	public void addItem(long item)
-	{
-
-		//FingerPrintAux fpaux = ;
-		//System.out.println(Arrays.toString(IStar));
-		this.addItem(hashFunc.createHash(item));	
-	}
-	public void addItem(String item)
-	{
-
-		//FingerPrintAux fpaux = ;
-		this.addItem(hashFunc.createHash(item));	
+	public boolean addItem(long item, int size) {
+		return this.addItem(makeHashWithSize(item,size));
 	}
 
-	public void RemoveItem(long i)
+	public void RemoveItem(long i,int size)
 	{
-
-		FingerPrintAux fpaux = hashFunc.createHash(i);
+		FingerPrintAux fpaux = makeHashWithSize(i,size);
 		this.removeItem(fpaux);	
 	}
-	public void RemoveItem(String i)
-	{
 
-		FingerPrintAux fpaux = hashFunc.createHash(i);
-		this.removeItem(fpaux);	
-	}
-	public boolean containItem(String item)
-	{
-//		FingerPrintAux fpaux = ;
-		//System.out.println(fpaux.toString());
-		return this.containsItem(hashFunc.createHash(item));
-	}
 	public boolean containItem(long item)
 	{
 		return this.containsItem(hashFunc.createHash(item));
+	}
+
+	public boolean containItemWithSize(long item){
+		FingerPrintAux fpaux = hashFunc.createHash(item);
+		RankIndexingTechnique.getChainAndUpdateOffsets(fpaux, I0, IStar, offsets, chain, fpaux.chainId);
+		return (this.FindItemWithSize(fpaux)>=0);
+	}
+
+	public long getItemSize(long item){
+		FingerPrintAux fingerPrintAux = hashFunc.createHash(item);
+		RankIndexingTechnique.getChainAndUpdateOffsets(fingerPrintAux, I0, IStar, offsets, chain, fingerPrintAux.chainId);
+		for (int i=0; i<this.chain.length;i++ ) {
+			if(chain[i]<0)
+				break;
+			long fpToCompare = this.Get(fingerPrintAux.bucketId, chain[i]);
+			if((fpToCompare>>mBitsPerSize) == fingerPrintAux.fingerprint)
+				return fpToCompare&sizeMask;
+		}
+		return -1;
 	}
 
 	public long getNum(long item){
@@ -97,14 +113,10 @@ public class TinyTable extends SimpleBitwiseArray
 		return getNrItems(fpaux.bucketId);
 	}
 
-
 	public long howmany(int bucketId, int chainId,long fingerprint)
 	{
-
 		long[] chain = this.getChain(bucketId, chainId);
 		return ChainHelper.howmany(chain, fingerprint, this.itemSize-1);
-
-		
 	}
 	@Override
 	public int getBucketStart(int bucketId)
@@ -132,16 +144,23 @@ public class TinyTable extends SimpleBitwiseArray
 	 * In order to support deletions, deleted items are first logically deleted, and are fully 
 	 * deleted only upon addition.
 	 */
-	protected void addItem(FingerPrintAux fpAux)
+	protected boolean addItem(FingerPrintAux fpAux)
 	{
+		long start = System.currentTimeMillis();
 		int nextBucket = this.findFreeBucket(fpAux.bucketId);
+		findEmptyTime+= System.currentTimeMillis()-start;
+		if(nextBucket == -1){
+			return false;
+		}
 
-		upscaleBuckets(fpAux.bucketId,nextBucket);
+		upscaleBuckets(fpAux.bucketId,nextBucket);// slow!! scal up or down
 		//System.out.println("insert bucket with num:"+getNrItems(fpAux.bucketId)+"and with offsets:"+offsets[64]);
-		int idxToAdd = RankIndexingTechnique.addItem(fpAux, I0, IStar,offsets,chain);
-		// if we need to, we steal items from other buckets. 
-		this.PutAndPush(fpAux.bucketId, idxToAdd, fpAux.fingerprint);
-		return;
+		start = System.currentTimeMillis();
+		int idxToAdd = RankIndexingTechnique.addItem(fpAux, I0, IStar,offsets,chain);// FAST 21MS AT TOTAL
+		// if we need to, we steal items from other buckets.
+		this.PutAndPush(fpAux.bucketId, idxToAdd, fpAux.fingerprint); // fast too 7ms???
+		addItemTime+=System.currentTimeMillis()-start;
+		return true;
 	}
 
 	
@@ -159,19 +178,28 @@ public class TinyTable extends SimpleBitwiseArray
 			bucket = (i)%this.I0.length;
 			if(A[bucket]>0)
 			{
-			
 				RemoveAndShrink(bucket);
 				A[bucket]--;
 				continue;
 			}
 			else
 			{
-
 				break;
 			}
 		}
 		
 
+	}
+
+	private int FindItemWithSize(FingerPrintAux fpaux){
+		for (int i=0; i<this.chain.length;i++ ) {
+			if(chain[i]<0)
+				break;
+			long fpToCompare = this.Get(fpaux.bucketId, chain[i]);
+			if((fpToCompare>>mBitsPerSize) == fpaux.fingerprint)
+				return chain[i];
+		}
+		return -1;
 	}
 
 	private int FindItem(FingerPrintAux fpaux)
@@ -229,13 +257,18 @@ public class TinyTable extends SimpleBitwiseArray
 	 * @return
 	 */
 	private int findFreeBucket(int bucketId) {
+
 		bucketId = bucketId%this.A.length;
+		int iter = 0;
 		while(this.getNrItems(bucketId)+this.A[bucketId] >=this.BucketCapacity)
 		{
 
 			bucketId++;
 			bucketId = bucketId%this.A.length;
-
+			iter++;
+			if(iter>this.A.length|| iter>maxIter){
+				return -1;
+			}
 		}
 		return bucketId;
 	}
@@ -290,7 +323,8 @@ public class TinyTable extends SimpleBitwiseArray
 		return (this.FindItem(fpaux)>=0);
 	}
 
-	
+
+
 
 
 

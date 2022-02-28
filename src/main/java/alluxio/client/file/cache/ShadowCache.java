@@ -38,9 +38,13 @@ public interface ShadowCache {
       case BMS:
         parameters.mAgeLevels = 2;
         return new BitMapWithSlidingSketchShadowCacheManager(parameters);
+      case SWAMP:
+        parameters.mAgeLevels = parameters.mClockBits;
+        return new SWAMPSketchShadowCacheManager(parameters);
       case CCF:
       default:
-        parameters.mAgeLevels = (1 << parameters.mClockBits);
+        // NOTE(iluoeli): should be (2^s-1) to avoid false negative
+        parameters.mAgeLevels = (1 << parameters.mClockBits) - 1;
         return new ClockCuckooShadowCacheManager(parameters);
     }
   }
@@ -152,7 +156,11 @@ public interface ShadowCache {
    */
   String getSummary();
 
+  default String dumpDebugInfo() {
+    return "";
+  }
+
   enum ShadowCacheType {
-    MBF, CCF, IDEAL, BMC, BMS, BMC2, BMC3
+    MBF, CCF, IDEAL, BMC, BMS, BMC2, BMC3, SWAMP
   }
 }

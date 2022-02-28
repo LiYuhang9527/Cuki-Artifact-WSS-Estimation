@@ -30,6 +30,12 @@ public interface Benchmark {
         return new TimeBasedAccuracyBenchmark(benchmarkContext, parameters);
       case TABLE:
         return new TableBenchmark(benchmarkContext, parameters);
+      case MULTI:
+        return new MultiScopeAccuracyBenchmark(benchmarkContext,parameters);
+      case ADAPTION:
+        return new CacheAdaptionBenchmark(benchmarkContext,parameters);
+      case TIME_MULTI:
+        return new MultiScopeTimeBasedBenchmark(benchmarkContext,parameters);
     }
     throw new NoSuchElementException();
   }
@@ -46,6 +52,6 @@ public interface Benchmark {
 
   enum BenchmarkType {
     ACCURACY, THROUGHPUT, HITRATIO, INSERT_THROUGHPUT, QUERY_THROUGHPUT, TIME_ACCURACY,
-    TABLE
+    TABLE, MULTI, TIME_MULTI, ADAPTION
   }
 }

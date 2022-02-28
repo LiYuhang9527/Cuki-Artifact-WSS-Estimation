@@ -3,7 +3,6 @@ package alluxio.client.file.cache;
 import alluxio.Constants;
 import alluxio.client.quota.CacheScope;
 import alluxio.util.FormatUtils;
-import alluxio.util.TinyTable.RankIndexingTechnique.RankIndexingTechnique;
 import alluxio.util.TinyTable.TinyTable;
 import alluxio.util.TinyTable.TinyTableWithCounters;
 
@@ -15,52 +14,50 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicLong;
 
 public class SWAMPSketchShadowCacheManager implements ShadowCache{
   protected long mWindowSize;
   protected int mFingerPrintSize;
   protected int[] cyclicFingerBuffer;
   protected int mBucketCapacity;
+  protected int mBitsPerSize;
   protected int mBucketNum;
   protected double mLoadF; //said "recommend this be 0.2"
   protected HashFunction mHashFunction;
   protected Funnel<PageId> mFunnel;
   protected int curIdx;
-  protected long pageNum;
-  protected long pageSize;
-  protected long pageReadNum;
-  protected long pageReadSize;
-  protected long hitNum;
-  protected long hitByte;
+  protected long deleteTime;
+  protected long addTime;
+  private final AtomicLong mShadowCachePageRead = new AtomicLong(0);
+  private final AtomicLong mShadowCachePageHit = new AtomicLong(0);
+  private final AtomicLong mShadowCacheByteRead = new AtomicLong(0);
+  private final AtomicLong mShadowCacheByteHit = new AtomicLong(0);
+  private final AtomicLong mBucketsSet = new AtomicLong(0);
+  private final AtomicLong mTotalSize = new AtomicLong(0);
   protected boolean debugMode;
 
   protected Map<Integer,Integer> debugMapPageToCode;
   protected Set<Integer> debugCodeSet;
 
   // no scope
-  protected TinyTableWithCounters tinyTableWithCounters;
   protected TinyTable tinyTable;
-  protected long putTime;
-  protected long deleteTime;
-  // we can use a hashcode to find string's 64bit long
-  // and also filed
-  // so we can define a hashcode's func
-  // Objects.hash(name,a,a)
   public SWAMPSketchShadowCacheManager(ShadowCacheParameters params) {
     mWindowSize = params.mWindowSize;
     mFingerPrintSize = params.mTagBits;
     mBucketCapacity = params.mTagsPerBucket;
+    mBitsPerSize = params.mSizeBits;
     long memoryInBits = FormatUtils.parseSpaceSize(params.mMemoryBudget) * 8;
-    mBucketNum = (int)((memoryInBits-(mWindowSize*mFingerPrintSize)) / (mBucketCapacity*(mFingerPrintSize+32)+136));
-    //mBucketNum = (int)((memoryInBits-(mWindowSize*mFingerPrintSize)) / (mBucketCapacity*mFingerPrintSize))*2;
+    if(memoryInBits<(mWindowSize*mFingerPrintSize*2)){
+      System.out.println("[+] swamp‘s memory too small!, at least"+mWindowSize*mFingerPrintSize*2/8.0/Constants.MB+"MB");
+      System.exit(-1);
+    }
+    mBucketNum = (int)((memoryInBits-(mWindowSize*mFingerPrintSize)) / (mBucketCapacity*(mFingerPrintSize+mBitsPerSize)+136));
     mLoadF = mBucketCapacity/(mWindowSize/(double)mBucketNum);
-    tinyTableWithCounters = new TinyTableWithCounters(mFingerPrintSize,mBucketCapacity,mBucketNum);
-    tinyTable = new TinyTable(mFingerPrintSize,mBucketCapacity,mBucketNum);
+    tinyTable = new TinyTable(mFingerPrintSize,mBitsPerSize,mBucketCapacity,mBucketNum);
     cyclicFingerBuffer = new int[(int)mWindowSize];
     mHashFunction = Hashing.murmur3_32((int)System.currentTimeMillis());
     mFunnel = PageIdFunnel.FUNNEL;
-    pageNum = 0;
-    pageSize = 0;
     debugMapPageToCode = new HashMap<>();
     debugCodeSet =  new HashSet<>();
     debugMode = false;
@@ -71,6 +68,8 @@ public class SWAMPSketchShadowCacheManager implements ShadowCache{
       System.out.print(s);
     }
   }
+
+
 
   private void updateCurIdx(){
     if(curIdx==mWindowSize-1){
@@ -85,10 +84,10 @@ public class SWAMPSketchShadowCacheManager implements ShadowCache{
     //info(String.format("try to put page:%s\n",pageId.toString()));
     int hashcode = mHashFunction.newHasher().putObject(pageId,mFunnel).hash().asInt();
     int prev = cyclicFingerBuffer[curIdx];
-    pageReadNum++;
-    pageReadSize++;
     if(prev!=0){
+      long start = System.currentTimeMillis();
       delete(prev);
+      deleteTime+= System.currentTimeMillis()-start;
     }
     long bucketNum = tinyTable.getNum(hashcode);
     //System.out.println("bucketBUm:"+bucketNum);
@@ -96,37 +95,48 @@ public class SWAMPSketchShadowCacheManager implements ShadowCache{
       updateCurIdx();
       return false;
     }
+
+    boolean isContain = tinyTable.containItemWithSize(hashcode);
+    long start = System.currentTimeMillis();
+    if(!tinyTable.addItem(hashcode,size)){
+      addTime += System.currentTimeMillis()-start;;
+      updateCurIdx();
+      return false;
+    }
+    addTime += System.currentTimeMillis()-start;
     cyclicFingerBuffer[curIdx] = hashcode;
     updateCurIdx();
-    if(tinyTable.containItem(hashcode)){
-      hitNum++;
-      hitByte+=size;
-    }else{
-      tinyTableWithCounters.StoreValue(hashcode,size);
-      pageNum ++;
-      pageSize += size;
-    }
-    //todo this have out of bound bug , seems need to change chainlength, however though  work at the beginning,but fail at 61504's op,so we need to read article and find how to set this
-    tinyTable.addItem(hashcode);
 
+    if(!isContain){
+      mBucketsSet.addAndGet(1);
+      mTotalSize.addAndGet(size);
+    }
 
     return true;
   }
 
   @Override
   public int get(PageId pageId, int bytesToRead, CacheScope scope) {
-    return 0;
+    mShadowCachePageRead.incrementAndGet();
+    mShadowCacheByteRead.addAndGet(bytesToRead);
+    int hashcode = mHashFunction.newHasher().putObject(pageId,mFunnel).hash().asInt();
+    if(!tinyTable.containItemWithSize(hashcode)){
+      return 0;
+    }
+    this.put(pageId,bytesToRead,scope);
+    mShadowCachePageHit.incrementAndGet();
+    mShadowCacheByteHit.addAndGet(bytesToRead);
+    return bytesToRead;
   }
 
 
   public boolean delete(int hashcode){
-    if(tinyTable.containItem(hashcode)) {
-      long prevSize = tinyTableWithCounters.GetValue(hashcode);
-      tinyTable.RemoveItem(hashcode);
-      if (!tinyTable.containItem(hashcode)) {
-        //tinyTableWithCounters.RemoveItem(prev);
-        pageSize -= prevSize;
-        pageNum -= 1;
+    long prevSize = tinyTable.getItemSize(hashcode);
+    if(prevSize!=-1) {
+      tinyTable.RemoveItem(hashcode,(int)prevSize);
+      if (!tinyTable.containItemWithSize(hashcode)) {
+        mTotalSize.addAndGet(-prevSize);
+        mBucketsSet.addAndGet(-1);
       }
       cyclicFingerBuffer[curIdx] = 0;
       return true;
@@ -161,7 +171,7 @@ public class SWAMPSketchShadowCacheManager implements ShadowCache{
 
   @Override
   public long getShadowCachePages() {
-    return pageNum;
+    return mBucketsSet.get();
   }
 
   @Override
@@ -171,7 +181,7 @@ public class SWAMPSketchShadowCacheManager implements ShadowCache{
 
   @Override
   public long getShadowCacheBytes() {
-    return pageSize;
+    return mTotalSize.get();
   }
 
   @Override
@@ -181,22 +191,22 @@ public class SWAMPSketchShadowCacheManager implements ShadowCache{
 
   @Override
   public long getShadowCachePageRead() {
-    return pageReadNum;
+    return mShadowCachePageRead.get();
   }
 
   @Override
   public long getShadowCachePageHit() {
-    return hitNum;
+    return mShadowCachePageHit.get();
   }
 
   @Override
   public long getShadowCacheByteRead() {
-    return pageReadSize;
+    return mShadowCacheByteRead.get();
   }
 
   @Override
   public long getShadowCacheByteHit() {
-    return hitByte;
+    return mShadowCacheByteHit.get();
   }
 
   @Override
@@ -207,12 +217,17 @@ public class SWAMPSketchShadowCacheManager implements ShadowCache{
   @Override
   public long getSpaceBits() {
     // maybe not right, we should check this !
-    return mFingerPrintSize*mWindowSize+ (long)mBucketNum*mBucketCapacity*(mFingerPrintSize+32)+mBucketNum* 136L;
+    return mFingerPrintSize*mWindowSize+ (long)mBucketNum*mBucketCapacity*(mFingerPrintSize+mBitsPerSize)+mBucketNum*136L;
   }
 
   @Override
   public String getSummary() {
     return "SWAMP: \nbitsPerTag: " + mFingerPrintSize
-        + "\nSizeInMB: " + getSpaceBits() / 8.0 / Constants.MB;
+        + "\nbucketNum: "+ mBucketNum
+        + "\nSizeInMB: " + getSpaceBits() / 8.0 / Constants.MB
+        + "\nDeleteTime: " +deleteTime
+        + "\nTinyAddTime: " +addTime
+        + "\nfindEmptyTime" +tinyTable.findEmptyTime
+        + "\nscaleUpTime: "+tinyTable.addItemTime;
   }
 }

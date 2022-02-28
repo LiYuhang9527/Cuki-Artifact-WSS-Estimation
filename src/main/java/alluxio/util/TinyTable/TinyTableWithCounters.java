@@ -33,6 +33,21 @@ public class TinyTableWithCounters extends TinyTable {
 		FingerPrintAux fpaux = hashFunc.createHash(item);
 		return this.howmany(fpaux.bucketId, fpaux.chainId, fpaux.fingerprint|1l);
 	}
+	public void RemoveValue(long item){
+		FingerPrintAux fpaux = hashFunc.createHash(item);
+		fpaux.fingerprint|=1l;
+		this.RemoveItemValue(fpaux);
+	}
+	public void RemoveItem(long item){
+		FingerPrintAux fpaux = hashFunc.createHash(item);
+		fpaux.fingerprint|=1l;
+		this.removeItem(fpaux);
+	}
+	public boolean ContainItem(long item){
+		FingerPrintAux fpaux = hashFunc.createHash(item);
+		fpaux.fingerprint|=1;
+		return this.containsItem(fpaux);
+ 	}
 
 
 
@@ -84,13 +99,19 @@ public class TinyTableWithCounters extends TinyTable {
 	}
 	protected void StoreValue(FingerPrintAux fpaux,long value)
 	{
-		if(!this.containsItem(fpaux))
-		{
+		if(!this.containsItem(fpaux)) {
 			this.addItem(fpaux);
 		}
 		long[] chain = this.getChain(fpaux.bucketId, fpaux.chainId);
 		chain = ChainHelper.storeValue(chain, fpaux.fingerprint, this.itemSize, value);
+		// delete
 		this.storeChain(fpaux.bucketId, fpaux.chainId, chain);
+	}
+	protected void RemoveItemValue(FingerPrintAux fpaux){
+		long[] chain = this.getChain(fpaux.bucketId, fpaux.chainId);
+		chain = ChainHelper.removeValue(chain,fpaux.fingerprint);
+
+		this.storeChain(fpaux.bucketId,fpaux.chainId,chain);
 	}
 	
 	/**

@@ -48,4 +48,10 @@ public class BenchmarkParameters extends ShadowCacheParameters {
 
   @Parameter(names = "--num_threads")
   public int mNumThreads = 1;
+
+  @Parameter(names = "--num_scope")
+  public int mNumScope = 1;
+
+  @Parameter(names = "--cache_memory")
+  public String mCacheMemory = "2GB";
 }

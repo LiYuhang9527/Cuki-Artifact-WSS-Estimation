@@ -50,7 +50,7 @@ public class TimeBasedAccuracyBenchmark implements Benchmark {
   long byteFP = 0; // number of bytes are seen as existent in cache but in fact not
   long byteFN = 0; // number of bytes are seen as inexistent in cache but in fact existed
   long totalBytes = 0; // number of bytes passed the shadow cache
-  private Dataset<String> mDataset;
+  private EntryGenerator<String> mDataset;
 
   public TimeBasedAccuracyBenchmark(BenchmarkContext benchmarkContext,
       BenchmarkParameters benchmarkParameters) {
@@ -81,7 +81,7 @@ public class TimeBasedAccuracyBenchmark implements Benchmark {
         generator = new RandomEntryGenerator(mBenchmarkParameters.mMaxEntries, 1,
             (int) mBenchmarkParameters.mNumUniqueEntries + 1);
     }
-    mDataset = new GeneralDataset<>(generator, (int) mBenchmarkParameters.mWindowSize);
+    mDataset = generator;
   }
 
   @Override
@@ -120,7 +120,7 @@ public class TimeBasedAccuracyBenchmark implements Benchmark {
       long millisToWait = ((entry.getTimestamp() - firstEntryArrivalTime) * 1000 - elapsedMillis);
       if (millisToWait > 0) {
         try {
-          Thread.sleep(millisToWait);
+          Thread.sleep(millisToWait/mBenchmarkParameters.mTimeDivisor);
         } catch (Exception e) {
           e.printStackTrace();
           System.exit(1);
@@ -133,6 +133,8 @@ public class TimeBasedAccuracyBenchmark implements Benchmark {
       int nread2 = mIdealShadowCache.get(item, entry.getSize(), entry.getScopeInfo());
       if (nread2 <= 0) {
         mIdealShadowCache.put(item, entry.getSize(), entry.getScopeInfo());
+      } else {
+        entry.setSize(nread2);
       }
 
       // update shadow cache
@@ -190,8 +192,12 @@ public class TimeBasedAccuracyBenchmark implements Benchmark {
         realCachePagesHit, realCacheBytesHit, estCachePagesHit, estCacheBytesHit);
     // accumulate error
     errCnt++;
-    numARE += Math.abs(estNum / (double) realNum - 1.0);
-    byteARE += Math.abs(estByte / (double) realByte - 1.0);
+    if(realNum != 0){
+      numARE += Math.abs(estNum / (double) realNum - 1.0);
+    }
+    if(realByte != 0){
+      byteARE += Math.abs(estByte / (double) realByte - 1.0);
+    }
     if (estCacheBytesHit != 0) {
       pageHitARE += Math.abs(realCachePagesHit / (double) estCachePagesHit - 1.0);
       byteHitARE += Math.abs(realCacheBytesHit / (double) estCacheBytesHit - 1.0);
