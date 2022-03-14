@@ -58,7 +58,7 @@ public class BitMapWithSlidingSketchShadowCacheManager implements ShadowCache {
     mWindowSize = (int)params.mWindowSize;
     mFunnel = PageIdFunnel.FUNNEL;
     mBitsPerScope = params.mScopeBits;
-    mHashNum = 4;
+    mHashNum = params.mNumHashFunctions;
     long memoryInBits = FormatUtils.parseSpaceSize(params.mMemoryBudget) * 8;
     mBucketNum = (int) (memoryInBits / ((mBitsPerSize) * 2));
     for (int i = 0; i < mHashNum; i++) {
@@ -240,6 +240,7 @@ public class BitMapWithSlidingSketchShadowCacheManager implements ShadowCache {
     return "Sliding Sketch   numBuckets: " + mBucketNum
         + "\nbitsPerSize: " + mBitsPerSize
         + "\nSizeInMB: " + (getSpaceBits() / 8.0 / Constants.MB)
-        + "\nClearItemsPerTime: " +  numClearPerTime;
+        + "\nClearItemsPerTime: " +  numClearPerTime
+        + "\nHashNum: " + mHashNum;
   }
 }
