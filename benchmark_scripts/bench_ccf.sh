@@ -16,14 +16,23 @@ to_brief_string() {
   fi
 }
 
+
+to_brief_string_time() {
+  local size=$1
+  echo "$(( size / 3600000 ))h"
+}
+
 bench_one() {
   local str_max_entries=$(to_brief_string ${MAX_ENTRIES})
-  local str_window_size=$(to_brief_string ${WINDOW_SIZE})
-  mkdir -p "${REPORT_DIR}/${BENCHMARK}/${DATASET}"
+  local str_window_size=$(to_brief_string ${WINDOW_SIZE_RAW})
+  if [[ ${BENCHMARK} == "time_accuracy" ]]; then
+    str_window_size=$(to_brief_string_time ${WINDOW_SIZE_RAW})
+  fi
+  mkdir -p "${REPORT_DIR}/${BENCHMARK}/${DATASET}/${DATASET_NAME}"
         local tag_prefix="t${TAGS_PER_BUCKET}_${TAG_BITS}"
         local size_prefix="s${SIZE_ENCODE}_${SIZE_BITS}_${SIZE_BUCKET_BITS}"
         local clock_prefix="c${CLOCK_BITS}_${OPPO_AGING}"
-  local prefix="${REPORT_DIR}/${BENCHMARK}/${DATASET}/${SHADOW_CACHE}-${DATASET}-${str_max_entries}-${str_window_size}-${MEMORY}-${tag_prefix}-${size_prefix}-${clock_prefix}"
+  local prefix="${REPORT_DIR}/${BENCHMARK}/${DATASET}/${DATASET_NAME}/${SHADOW_CACHE}-${DATASET}-${str_max_entries}-${str_window_size}-${MEMORY}-${tag_prefix}-${size_prefix}-${clock_prefix}"
         local timestamp=$(date +'%Y%m%d_%H_%M_%S')
   REPORT_FILE="${prefix}.csv"
   LOG_FILE="${prefix}.log"
@@ -45,6 +54,7 @@ bench_one() {
                 --size_encode ${SIZE_ENCODE} \
                 --num_size_bucket_bits ${SIZE_BITS} \
                 --size_bucket_bits ${SIZE_BUCKET_BITS} \
+                --time_divisor ${TIME_DIVISOR} \
                 --size_bits ${SIZE_BITS} \
                 --scope_bits ${SCOPE_BITS} \
                 --tag_bits ${TAG_BITS} \

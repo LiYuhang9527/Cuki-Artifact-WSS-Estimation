@@ -7,7 +7,7 @@ CLASS_NAME="alluxio.client.file.cache.benchmark.BenchmarkMain"
 BENCHMARK="accuracy"
 DATASET="msr" # optional: msr, twitter, random, sequential
 SHADOW_CACHE="ccf" # optional: ccf, mbf
-TRACE="/datasets/msr-cambridge1/prxy_0.csv" # msr
+TRACE="/home/lisimian/datasets/MSR-Cambridge/prxy_0.csv" # msr
 #TRACE="/datasets/cluster37.0" # twitter
 MAX_ENTRIES=12582912 # 12m
 MEMORY="1mb"
@@ -15,7 +15,7 @@ WINDOW_SIZE=262144 # 256k
 NUM_UNIQUE_ENTRIES=${WINDOW_SIZE} # used for random & sequential benchmark
 CLOCK_BITS="4"
 OPPO_AGING="true"
-REPORT_DIR="/datasets/benchmarks/bench"
+REPORT_DIR="/home/lisimian/datasets/benchmarks/bench"
 REPORT_INTERVAL=64
 
 to_brief_string() {

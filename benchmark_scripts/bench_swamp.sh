@@ -2,8 +2,6 @@
 set +ex
 
 JAVA="java"
-JAR="./target/working-set-size-estimation-1.0-SNAPSHOT-jar-with-dependencies.jar"
-CLASS_NAME="alluxio.client.file.cache.benchmark.BenchmarkMain"
 
 to_brief_string() {
   local size=$1
@@ -16,20 +14,11 @@ to_brief_string() {
   fi
 }
 
-to_brief_string_time() {
-  local size=$1
-  echo "$(( size / 3600000 ))h"
-}
-
-
 bench_one() {
   local str_max_entries=$(to_brief_string ${MAX_ENTRIES})
-  local str_window_size=$(to_brief_string ${WINDOW_SIZE_RAW})
-  if [[ ${BENCHMARK} == "time_accuracy" ]]; then
-    str_window_size=$(to_brief_string_time ${WINDOW_SIZE_RAW})
-  fi
-  mkdir -p "${REPORT_DIR}/${BENCHMARK}/${DATASET}/${DATASET_NAME}"
-  local prefix="${REPORT_DIR}/${BENCHMARK}/${DATASET}/${DATASET_NAME}/${SHADOW_CACHE}-${DATASET}-${str_max_entries}-${str_window_size}-${MEMORY}-${NUM_BLOOMS}"
+  local str_window_size=$(to_brief_string ${WINDOW_SIZE})
+  mkdir -p "${REPORT_DIR}/${BENCHMARK}/${DATASET}"
+  local prefix="${REPORT_DIR}/${BENCHMARK}/${DATASET}/${SHADOW_CACHE}-${DATASET}-${str_max_entries}-${str_window_size}-${MEMORY}-${CLOCK_BITS}-${SIZE_BITS}"
         local timestamp=$(date +'%Y%m%d_%H_%M_%S')
   REPORT_FILE="${prefix}.csv"
   LOG_FILE="${prefix}.log"
@@ -44,9 +33,11 @@ bench_one() {
     --memory ${MEMORY} \
     --window_size ${WINDOW_SIZE} \
     --num_unique_entries ${NUM_UNIQUE_ENTRIES} \
-    --time_divisor ${TIME_DIVISOR} \
-    --num_blooms ${NUM_BLOOMS} \
+    --clock_bits ${CLOCK_BITS} \
     --report_file ${REPORT_FILE} \
     --report_interval ${REPORT_INTERVAL} \
+    --time_divisor ${TIME_DIVISOR} \
+                --size_bits ${SIZE_BITS} \
+                --scope_bits ${SCOPE_BITS} \
     >> ${LOG_FILE}
 }
