@@ -75,6 +75,7 @@ public class BitMapWithSlidingSketchShadowCacheManager implements ShadowCache {
 
   @Override
   public boolean put(PageId pageId, int size, CacheScope scope) {
+    //System.out.println("in put");
     for (HashFunction hashFunc : hashFuncs) {
       int pos = Math.abs(hashFunc.newHasher().putObject(pageId, mFunnel).hash().asInt() % mBucketNum);
       lock.lock();
@@ -87,12 +88,13 @@ public class BitMapWithSlidingSketchShadowCacheManager implements ShadowCache {
       lock.unlock();
       // traceSizeOld[pos] = 0;
     }
-
+    //System.out.println("put end");
     return true;
   }
 
   @Override
   public int get(PageId pageId, int bytesToRead, CacheScope scope) {
+    //System.out.println("in get");
     mShadowCachePageRead.incrementAndGet();
     mShadowCacheByteRead.addAndGet(bytesToRead);
     for (HashFunction hashFunc : hashFuncs) {
@@ -100,9 +102,11 @@ public class BitMapWithSlidingSketchShadowCacheManager implements ShadowCache {
       lock.lock();
       if (traceSizeNew[pos] == 0 && traceSizeOld[pos] == 0) {
         lock.unlock();
+        //System.out.println("out get");
         return 0;
       }
       lock.unlock();
+      //System.out.println("out get");
     }
     mShadowCachePageHit.incrementAndGet();
     mShadowCacheByteHit.addAndGet(bytesToRead);
