@@ -12,8 +12,10 @@
 package alluxio.client.file.cache;
 
 import static java.lang.Math.min;
+import static java.util.concurrent.TimeUnit.MILLISECONDS;
 
 import alluxio.Constants;
+import alluxio.client.file.cache.cuckoofilter.SlidingWindowType;
 import alluxio.client.quota.CacheScope;
 import alluxio.util.FormatUtils;
 
@@ -23,6 +25,8 @@ import com.google.common.hash.Hashing;
 
 import java.util.LinkedList;
 import java.util.List;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
@@ -45,6 +49,7 @@ public class BitMapWithSlidingSketchShadowCacheManager implements ShadowCache {
   private final AtomicLong mShadowCacheByteHit = new AtomicLong(0);
   private final AtomicLong mTotalOnes = new AtomicLong(0);
   private final AtomicLong mTotalSize = new AtomicLong(0);
+  private final ScheduledExecutorService mScheduler = Executors.newScheduledThreadPool(0);
   private final Lock lock = new ReentrantLock();
   private int currIdx;
 
@@ -53,7 +58,7 @@ public class BitMapWithSlidingSketchShadowCacheManager implements ShadowCache {
     mWindowSize = (int)params.mWindowSize;
     mFunnel = PageIdFunnel.FUNNEL;
     mBitsPerScope = params.mScopeBits;
-    mHashNum = 4;
+    mHashNum = params.mNumHashFunctions;
     long memoryInBits = FormatUtils.parseSpaceSize(params.mMemoryBudget) * 8;
     mBucketNum = (int) (memoryInBits / ((mBitsPerSize) * 2));
     for (int i = 0; i < mHashNum; i++) {
@@ -62,32 +67,46 @@ public class BitMapWithSlidingSketchShadowCacheManager implements ShadowCache {
     numClearPerTime = (double)mBucketNum / mWindowSize;
     traceSizeNew = new int[mBucketNum];
     traceSizeOld = new int[mBucketNum];
+    int agingPeriod = 1;
+    if(params.mSlidingWindowType == SlidingWindowType.TIME_BASED){
+      mScheduler.scheduleAtFixedRate(this::aging, agingPeriod, agingPeriod, MILLISECONDS);
+    }
   }
 
   @Override
   public boolean put(PageId pageId, int size, CacheScope scope) {
+    //System.out.println("in put");
     for (HashFunction hashFunc : hashFuncs) {
       int pos = Math.abs(hashFunc.newHasher().putObject(pageId, mFunnel).hash().asInt() % mBucketNum);
+      lock.lock();
       if(traceSizeNew[pos]==0){
         if(traceSizeOld[pos]==0){
           mTotalOnes.incrementAndGet();
         }
       }
       traceSizeNew[pos] = size;
+      lock.unlock();
       // traceSizeOld[pos] = 0;
     }
+    //System.out.println("put end");
     return true;
   }
 
   @Override
   public int get(PageId pageId, int bytesToRead, CacheScope scope) {
+    //System.out.println("in get");
     mShadowCachePageRead.incrementAndGet();
     mShadowCacheByteRead.addAndGet(bytesToRead);
     for (HashFunction hashFunc : hashFuncs) {
       int pos = Math.abs(hashFunc.newHasher().putObject(pageId, mFunnel).hash().asInt() % mBucketNum);
+      lock.lock();
       if (traceSizeNew[pos] == 0 && traceSizeOld[pos] == 0) {
+        lock.unlock();
+        //System.out.println("out get");
         return 0;
       }
+      lock.unlock();
+      //System.out.println("out get");
     }
     mShadowCachePageHit.incrementAndGet();
     mShadowCacheByteHit.addAndGet(bytesToRead);
@@ -138,7 +157,9 @@ public class BitMapWithSlidingSketchShadowCacheManager implements ShadowCache {
   public void updateWorkingSetSize() {}
 
   @Override
-  public void stopUpdate() {}
+  public void stopUpdate() {
+    mScheduler.shutdown();
+  }
 
   @Override
   public void updateTimestamp(long increment) {}
@@ -223,6 +244,7 @@ public class BitMapWithSlidingSketchShadowCacheManager implements ShadowCache {
     return "Sliding Sketch   numBuckets: " + mBucketNum
         + "\nbitsPerSize: " + mBitsPerSize
         + "\nSizeInMB: " + (getSpaceBits() / 8.0 / Constants.MB)
-        + "\nClearItemsPerTime: " +  numClearPerTime;
+        + "\nClearItemsPerTime: " +  numClearPerTime
+        + "\nHashNum: " + mHashNum;
   }
 }
