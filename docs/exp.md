@@ -17,8 +17,7 @@ bash ./benchmark_scripts/msr_ccf_clock.sh
 ```bash
 chmod a+x ./benchmark_scripts/parse-log.sh
 
-./benchmark_scripts/parse-log.sh `ls -tr /datasets/benchmarks/20211216-bucket-newtwitter/accuracy
-/twitter/*.log`
+./benchmark_scripts/parse-log.sh `ls -tr /datasets/benchmarks/mbf/accuracy/twitter/*.log`
 ```
 
 输出6列，分别是Memory，ARE(Byte),FinalARE(PageHit),FPR(Byte),FNR(Byte),ER(Byte)

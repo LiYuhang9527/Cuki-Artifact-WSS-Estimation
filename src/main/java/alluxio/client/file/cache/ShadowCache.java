@@ -47,7 +47,7 @@ public interface ShadowCache {
       case CCF:
       default:
         // NOTE(iluoeli): should be (2^s-1) to avoid false negative
-        parameters.mAgeLevels = (1 << parameters.mClockBits) - 1;
+        parameters.mAgeLevels = 1 << parameters.mClockBits;
         return new ClockCuckooShadowCacheManager(parameters);
     }
   }
