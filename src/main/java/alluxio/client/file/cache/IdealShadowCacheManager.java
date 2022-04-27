@@ -133,6 +133,7 @@ public class IdealShadowCacheManager implements ShadowCache {
         } else {
           break;
         }
+
       }
     }
     realNumber = itemLRU.getSize();

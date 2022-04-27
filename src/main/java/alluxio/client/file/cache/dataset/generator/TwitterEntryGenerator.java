@@ -52,7 +52,7 @@ public class TwitterEntryGenerator implements EntryGenerator<String> {
     long timestamp = Long.parseLong(tokens[0]);
     String namespaceAndKey = tokens[1];
     int pi = namespaceAndKey.lastIndexOf("-");
-    // String scope = namespaceAndKey.substring(0, pi); // Scope format `Namespace1.Namespace2-...`
+    String scope = "noScopeNow";
     String key = namespaceAndKey.substring(pi + 1);
     int size = Integer.parseInt(tokens[2]) + Integer.parseInt(tokens[3]);
     // the size of each item should be not more than 2^20 byte
