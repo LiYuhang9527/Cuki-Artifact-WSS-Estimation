@@ -12,8 +12,10 @@
 package alluxio.client.file.cache;
 
 import static java.lang.Math.min;
+import static java.util.concurrent.TimeUnit.MILLISECONDS;
 
 import alluxio.Constants;
+import alluxio.client.file.cache.cuckoofilter.SlidingWindowType;
 import alluxio.client.quota.CacheScope;
 import alluxio.util.FormatUtils;
 
@@ -21,148 +23,133 @@ import com.google.common.hash.Funnel;
 import com.google.common.hash.HashFunction;
 import com.google.common.hash.Hashing;
 
-import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
-import java.util.Set;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
 
 public class BitMapWithSlidingSketchShadowCacheManager implements ShadowCache {
-  protected int mClockWidth;
+  protected int mBucketNum;
   protected int mBitsPerSize;
   protected int mBitsPerScope;
-  protected long mWindowSize;
+  protected int mWindowSize;
   protected int mHashNum;
-  protected int lastUpdateIdx;
-  protected long updateLen;
+  private double numClearPerTime;
+  private double clears;
   protected Funnel<PageId> mFunnel;
   protected List<HashFunction> hashFuncs = new LinkedList<HashFunction>();
   protected int[] traceSizeNew;
   protected int[] traceSizeOld;
-  protected CacheScope[] traceScopeNew;
-  protected CacheScope[] traceScopeOld;
-  private long hitNum;
-  private long queryNum;
-  private long querySize;
-  private long hitSize;
-  private long realNum;
+  private final AtomicLong mShadowCachePageRead = new AtomicLong(0);
+  private final AtomicLong mShadowCachePageHit = new AtomicLong(0);
+  private final AtomicLong mShadowCacheByteRead = new AtomicLong(0);
+  private final AtomicLong mShadowCacheByteHit = new AtomicLong(0);
+  private final AtomicLong mTotalOnes = new AtomicLong(0);
+  private final AtomicLong mTotalSize = new AtomicLong(0);
+  private final ScheduledExecutorService mScheduler = Executors.newScheduledThreadPool(0);
+  private final Lock lock = new ReentrantLock();
+  private int currIdx;
 
   public BitMapWithSlidingSketchShadowCacheManager(ShadowCacheParameters params) {
     mBitsPerSize = params.mSizeBits;
-    mWindowSize = params.mWindowSize;
+    mWindowSize = (int)params.mWindowSize;
     mFunnel = PageIdFunnel.FUNNEL;
     mBitsPerScope = params.mScopeBits;
-    mHashNum = 1;
+    mHashNum = params.mNumHashFunctions;
     long memoryInBits = FormatUtils.parseSpaceSize(params.mMemoryBudget) * 8;
-    mClockWidth = (int) (memoryInBits / ((mBitsPerSize + params.mScopeBits) * 2));
+    mBucketNum = (int) (memoryInBits / ((mBitsPerSize) * 2));
     for (int i = 0; i < mHashNum; i++) {
-      hashFuncs.add(Hashing.murmur3_32(i + 10086));
+      hashFuncs.add(Hashing.murmur3_32(i + 32713));
     }
-    updateLen = mClockWidth / mWindowSize;
-    traceSizeNew = new int[mClockWidth];
-    traceSizeOld = new int[mClockWidth];
-    traceScopeNew = new CacheScope[mClockWidth];
-    traceScopeOld = new CacheScope[mClockWidth];
+    numClearPerTime = (double)mBucketNum / mWindowSize;
+    traceSizeNew = new int[mBucketNum];
+    traceSizeOld = new int[mBucketNum];
+    int agingPeriod = 1;
+    if(params.mSlidingWindowType == SlidingWindowType.TIME_BASED){
+      mScheduler.scheduleAtFixedRate(this::aging, agingPeriod, agingPeriod, MILLISECONDS);
+    }
   }
 
   @Override
   public boolean put(PageId pageId, int size, CacheScope scope) {
-    queryNum++;
-    querySize += size;
+    //System.out.println("in put");
     for (HashFunction hashFunc : hashFuncs) {
-      int pos =
-          Math.abs(hashFunc.newHasher().putObject(pageId, mFunnel).hash().asInt() % mClockWidth);
-      if (traceSizeNew[pos] != 0) {
-        hitNum++;
-        hitSize += size;
+      int pos = Math.abs(hashFunc.newHasher().putObject(pageId, mFunnel).hash().asInt() % mBucketNum);
+      lock.lock();
+      if(traceSizeNew[pos]==0){
+        if(traceSizeOld[pos]==0){
+          mTotalOnes.incrementAndGet();
+        }
       }
       traceSizeNew[pos] = size;
-      traceScopeNew[pos] = scope;
+      lock.unlock();
       // traceSizeOld[pos] = 0;
-      // traceScopeOld[pos] = null;
     }
+    //System.out.println("put end");
     return true;
   }
 
   @Override
   public int get(PageId pageId, int bytesToRead, CacheScope scope) {
-    queryNum++;
-    boolean found = true;
+    //System.out.println("in get");
+    mShadowCachePageRead.incrementAndGet();
+    mShadowCacheByteRead.addAndGet(bytesToRead);
     for (HashFunction hashFunc : hashFuncs) {
-      int pos =
-          Math.abs(hashFunc.newHasher().putObject(pageId, mFunnel).hash().asInt() % mClockWidth);
+      int pos = Math.abs(hashFunc.newHasher().putObject(pageId, mFunnel).hash().asInt() % mBucketNum);
+      lock.lock();
       if (traceSizeNew[pos] == 0 && traceSizeOld[pos] == 0) {
-        found = false;
-        break;
+        lock.unlock();
+        //System.out.println("out get");
+        return 0;
       }
+      lock.unlock();
+      //System.out.println("out get");
     }
-    if (found) {
-      hitNum++;
-      return 1;
-    } else {
-      return 0;
-    }
+    mShadowCachePageHit.incrementAndGet();
+    mShadowCacheByteHit.addAndGet(bytesToRead);
+    return bytesToRead;
   }
 
   @Override
   public void aging() {
-    updateClock(1);
+    lock.lock();
+    clears+=numClearPerTime;
+    int clearsI  = (int)Math.floor(clears);
+    clears -= clearsI;
+    int endPos = (currIdx+clearsI)%mBucketNum;
+
+    if(endPos<currIdx){
+      agingRange(currIdx,mBucketNum);
+      agingRange(0,endPos);
+    }else{
+      agingRange(currIdx,endPos);
+    }
+    currIdx = endPos;
+    lock.unlock();
   }
 
-  public void updateClock(int insertTimesPerUpdate) {
-    long temp = updateLen * insertTimesPerUpdate;
-    int subAll = (int) (temp / mClockWidth);
-    int len = (int) (temp % mClockWidth);
-
-    int beg = lastUpdateIdx;
-    int end = min(mClockWidth, lastUpdateIdx + len);
-    // 处理subAll圈
-    updateRange(beg, end, subAll + 1);
-    if (end - beg < len) {
-      end = len - (end - beg);
-      beg = 0;
-      updateRange(beg, end, subAll + 1);
-    }
-    // 处理subAll圈
-    // 按圈处理 比for要快
-    if (end > lastUpdateIdx) {
-      updateRange(end, mClockWidth, subAll);
-      updateRange(0, lastUpdateIdx, subAll);
-    } else {
-      updateRange(end, lastUpdateIdx, subAll);
-    }
-    lastUpdateIdx = end;
-  }
-
-  public void updateRange(int beg, int end, int val) {
-    if (val == 0) {
-      return;
-    }
-    while (beg < end) {
-      if (val > 1) {
-        traceSizeOld[beg] = 0;
-      } else {
-        traceSizeOld[beg] = traceSizeNew[beg];
+  private void agingRange(int start,int end){
+    for(int i=start;i<end;i++){
+      if(traceSizeNew[i]==0 && traceSizeOld[i]!=0){
+        mTotalOnes.decrementAndGet();
       }
-      traceSizeNew[beg] = 0;
-      beg++;
+      traceSizeOld[i] = traceSizeNew[i];
+      traceSizeNew[i] = 0;
     }
-  }
-
-  public double getHitRate() {
-    return hitNum / queryNum;
   }
 
   @Override
   public boolean delete(PageId pageId) {
+    lock.lock();
     for (HashFunction hashFunc : hashFuncs) {
-      int pos =
-          Math.abs(hashFunc.newHasher().putObject(pageId, mFunnel).hash().asInt() % mClockWidth);
+      int pos = Math.abs(hashFunc.newHasher().putObject(pageId, mFunnel).hash().asInt() % mBucketNum);
       traceSizeNew[pos] = 0;
-      traceScopeNew[pos] = null;
       traceSizeOld[pos] = 0;
-      traceScopeOld[pos] = null;
-      // TODO TRANCEOLD[pos] = 0 ?
     }
+    lock.unlock();
     return true;
   }
 
@@ -170,22 +157,25 @@ public class BitMapWithSlidingSketchShadowCacheManager implements ShadowCache {
   public void updateWorkingSetSize() {}
 
   @Override
-  public void stopUpdate() {}
+  public void stopUpdate() {
+    mScheduler.shutdown();
+  }
 
   @Override
   public void updateTimestamp(long increment) {}
 
   @Override
   public long getShadowCachePages() {
-    double u = 0;
-    for (int i = 0; i < mClockWidth; ++i) {
-      if (traceSizeOld[i] == 0 && traceSizeNew[i] == 0) {
-        u++;
-      }
-    }
+    double zeros = mBucketNum-mTotalOnes.get();
+    double pages;
 
-    realNum = (long) (-mClockWidth / (double) mHashNum * Math.log(u / mClockWidth));
-    return realNum;// 源码里并没有/hashNum，原作者也没考虑
+
+    if (zeros == 0) {
+      pages = -mBucketNum/(double)mHashNum * Math.log(1.0 / mBucketNum);
+    } else {
+      pages = -mBucketNum/(double)mHashNum * Math.log(zeros / (double) mBucketNum);
+    }
+    return (long)pages;
   }
 
   @Override
@@ -195,14 +185,23 @@ public class BitMapWithSlidingSketchShadowCacheManager implements ShadowCache {
 
   @Override
   public long getShadowCacheBytes() {
-    long workSetSize = 0;
-    for (int i = 0; i < mClockWidth; i++) {
-      // TODO- 合并策略
+    long sizeSum = 0;
+    //long ones = mTotalOnes.get();
+    long ones = 0;
+    for (int i = 0; i < mBucketNum; i++) {
+      // TODO- how to combine
       double traceSize = traceSizeNew[i] + traceSizeOld[i];
-      workSetSize += traceSize;
+      if(traceSizeNew[i]!=0){
+        ones++;
+      }
+      if(traceSizeOld[i]!=0){
+        ones++;
+      }
+      sizeSum += traceSize;
     }
-    Set<Integer> set = new HashSet<>();
-    return workSetSize;
+    double avgSize = (double)sizeSum/ones;
+
+    return (long)avgSize*getShadowCachePages();
   }
 
   @Override
@@ -212,22 +211,22 @@ public class BitMapWithSlidingSketchShadowCacheManager implements ShadowCache {
 
   @Override
   public long getShadowCachePageRead() {
-    return queryNum;
+    return mShadowCachePageRead.get();
   }
 
   @Override
   public long getShadowCachePageHit() {
-    return hitNum;
+    return mShadowCachePageHit.get();
   }
 
   @Override
   public long getShadowCacheByteRead() {
-    return querySize;
+    return mShadowCacheByteRead.get();
   }
 
   @Override
   public long getShadowCacheByteHit() {
-    return hitSize;
+    return mShadowCacheByteHit.get();
   }
 
   @Override
@@ -237,13 +236,15 @@ public class BitMapWithSlidingSketchShadowCacheManager implements ShadowCache {
 
   @Override
   public long getSpaceBits() {
-    return mClockWidth * (mBitsPerScope + mBitsPerSize) * 2;
+    return (long) mBucketNum * mBitsPerSize * 2;
   }
 
   @Override
   public String getSummary() {
-
-    return "bitMapWithSliding: \nbitsPerSize: " + mBitsPerSize + "\nbitsPerScope: " + mBitsPerScope
-        + "\nSizeInMB: " + mClockWidth * (mBitsPerScope + mBitsPerSize) * 2 / 8.0 / Constants.MB;
+    return "Sliding Sketch   numBuckets: " + mBucketNum
+        + "\nbitsPerSize: " + mBitsPerSize
+        + "\nSizeInMB: " + (getSpaceBits() / 8.0 / Constants.MB)
+        + "\nClearItemsPerTime: " +  numClearPerTime
+        + "\nHashNum: " + mHashNum;
   }
 }

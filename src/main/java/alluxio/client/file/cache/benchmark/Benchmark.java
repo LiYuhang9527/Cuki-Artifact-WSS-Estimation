@@ -22,6 +22,8 @@ public interface Benchmark {
         return new AccuracyBenchmark(benchmarkContext, parameters);
       case THROUGHPUT:
         return new ThroughputBenchmark(benchmarkContext, parameters);
+      case SS_THROUGHPUT:
+        return new SlidingSketchThrouhputBenchmark(benchmarkContext,parameters);
       case HITRATIO:
         return new HitRatioBenchmark(benchmarkContext, parameters);
       case INSERT_THROUGHPUT:
@@ -52,6 +54,6 @@ public interface Benchmark {
 
   enum BenchmarkType {
     ACCURACY, THROUGHPUT, HITRATIO, INSERT_THROUGHPUT, QUERY_THROUGHPUT, TIME_ACCURACY,
-    TABLE, MULTI, TIME_MULTI, ADAPTION
+    TABLE, MULTI, TIME_MULTI, ADAPTION,SS_THROUGHPUT
   }
 }
