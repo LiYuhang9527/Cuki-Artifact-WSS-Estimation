@@ -2,3 +2,9 @@
 target
 benchmarks
 *.iml
+prxy_0.csv
+multiScope_1d_8_v5.csv
+multiScope_1d_16_v5.csv
+cluster35-1d.csv
+cluster37-1h-new.csv
+ycsb-1m-10m-1m-concat6.csv
