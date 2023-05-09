@@ -9,12 +9,12 @@ CLASS_NAME="alluxio.client.file.cache.benchmark.BenchmarkMain"
 BENCHMARK="accuracy"
 DATASET="msr" # optional: msr, twitter, ycsb, random, sequential
 SHADOW_CACHE="SWAMP" # optional: ccf, mbf, bmc
-TRACE="/datasets/msr/prxy_0.csv" # msr
+TRACE="./datasets/msr/prxy_0.csv" # msr
 MAX_ENTRIES=12582912 # 12m
 WINDOW_SIZE=262144 # 256k
 NUM_UNIQUE_ENTRIES=262144 # used for random & sequential benchmark
-REPORT_DIR="/datasets/benchmarks/swamp" # path to store logs & csvs
-REPORT_INTERVAL=64 # report metrics every 64 time units
+REPORT_DIR="./datasets/benchmarks/swamp" # path to store logs & csvs
+REPORT_INTERVAL=64 # report metrics every 1000 time units
 
 
 OPPO_AGING=false; # true for CCF(oa); false for CCF
@@ -30,3 +30,10 @@ do
     memory=`expr $memory + 8`
     bench_one_swamp
 done
+
+MEMORY="192kb"
+bench_one_swamp
+
+
+bash ./bin/parse-log.sh `ls -tr ${REPORT_DIR}/${BENCHMARK}/${DATASET}/*.log` >  ${REPORT_DIR}/${BENCHMARK}/${DATASET}/summary.csv
+echo ${REPORT_DIR}/${BENCHMARK}/${DATASET}/summary.csv

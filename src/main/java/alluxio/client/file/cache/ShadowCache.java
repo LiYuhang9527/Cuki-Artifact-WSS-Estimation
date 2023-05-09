@@ -29,24 +29,14 @@ public interface ShadowCache {
       case BMC:
         parameters.mAgeLevels = (1 << parameters.mClockBits) - 1;
         return new BitMapWithClockSketchCacheManager(parameters);
-      case BMC2:
-        parameters.mAgeLevels = (1 << parameters.mClockBits) - 1;
-        return new BitMapWithClockSketch2CacheManager(parameters);
-      case BMC3:
-        parameters.mAgeLevels = (1 << parameters.mClockBits) - 1;
-        return new BitMapWithClockSketch3CacheManager(parameters);
       case BMS:
         parameters.mAgeLevels = (int)parameters.mWindowSize;
         return new BitMapWithSlidingSketchShadowCacheManager(parameters);
-      case BMS2:
-        parameters.mAgeLevels = (int)parameters.mWindowSize;
-        return new BitMapWithSlidingSketch2ShadowCacheManager(parameters);
       case SWAMP:
         parameters.mAgeLevels = parameters.mClockBits;
         return new SWAMPSketchShadowCacheManager(parameters);
       case CCF:
       default:
-        // NOTE(iluoeli): should be (2^s-1) to avoid false negative
         parameters.mAgeLevels = 1 << parameters.mClockBits;
         return new ClockCuckooShadowCacheManager(parameters);
     }
@@ -164,6 +154,6 @@ public interface ShadowCache {
   }
 
   enum ShadowCacheType {
-    MBF, CCF, IDEAL, BMC, BMS, BMC2, BMC3, SWAMP, BMS2
+    MBF, CCF, IDEAL, BMC, BMS, SWAMP
   }
 }

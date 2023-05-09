@@ -9,11 +9,11 @@ CLASS_NAME="alluxio.client.file.cache.benchmark.BenchmarkMain"
 BENCHMARK="accuracy"
 DATASET="twitter" # optional: msr, twitter, random, sequential
 SHADOW_CACHE="ccf" # optional: ccf, mbf
-TRACE="/datasets/twitter/cluster37-1h-new.csv" # twitter
+TRACE="./datasets/twitter/cluster37-1h-new.csv" # twitter
 MAX_ENTRIES=12582912 # 12m
 WINDOW_SIZE=262144 # 256k
 NUM_UNIQUE_ENTRIES=262144 # used for random & sequential benchmark
-REPORT_DIR="/datasets/benchmarks/memory-ccf"
+REPORT_DIR="./datasets/benchmarks/memory-ccf"
 REPORT_INTERVAL=64
 SIZE_BITS=20
 NUM_SCOPE=0
@@ -38,3 +38,11 @@ for BITS in `seq 1 1 8`; do
   bench_one_ccf
 done
 
+MEMORY="768kb"
+bench_one_ccf
+
+bash bin/parse-log.sh \
+  `ls -tr ${REPORT_DIR}/${BENCHMARK}/${DATASET}/*_${OPPO_AGING}.log` \
+  >  ${REPORT_DIR}/${BENCHMARK}/${DATASET}/summary_${OPPO_AGING}.csv
+
+echo ${REPORT_DIR}/${BENCHMARK}/${DATASET}/summary_${OPPO_AGING}.csv

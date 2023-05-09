@@ -34,3 +34,7 @@ for memory in `seq 320 64 768`; do
   MEMORY="${memory}kb"
   bench_one_swamp
 done
+
+
+bash ./bin/parse-log.sh `ls -tr ${REPORT_DIR}/${BENCHMARK}/${DATASET}/*.log` >  ${REPORT_DIR}/${BENCHMARK}/${DATASET}/summary.csv
+echo ${REPORT_DIR}/${BENCHMARK}/${DATASET}/summary.csv

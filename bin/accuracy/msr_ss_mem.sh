@@ -13,7 +13,7 @@ DATASET="msr"
 SHADOW_CACHE="bms" # optional: ccf, mbf
 
 #TRACE="/home/lisimian/datasets/twitter/cluster37-1h-new.csv" # path to dataset
-TRACE="/datasets/msr/prxy_0.csv" # msr
+TRACE="./datasets/msr/prxy_0.csv" # msr
 #TRACE="/home/lisimian/datasets/ycsb/ycsb-1m-10m-1m-concat6.csv"
 
 #DATASET_NAME="cluster37-1h-new"
@@ -22,7 +22,7 @@ MAX_ENTRIES=12582912 # 12m
 WINDOW_SIZE_RAW=262144 # 256k
 WINDOW_SIZE=262144 # 256k
 NUM_UNIQUE_ENTRIES=262144 # used for random & sequential benchmark
-REPORT_DIR="/datasets/benchmarks/memory-ss"
+REPORT_DIR="./datasets/benchmarks/memory-ss"
 REPORT_INTERVAL=64
 SIZE_BITS=32
 TIME_DIVISOR=1
@@ -41,3 +41,10 @@ for memory in `seq 40 8 96`; do
   MEMORY="${memory}kb"
   bench_one_ss
 done
+
+MEMORY="192kb"
+bench_one_ss
+
+
+bash ./bin/parse-log.sh `ls -tr ${REPORT_DIR}/${BENCHMARK}/${DATASET}/*.log` >  ${REPORT_DIR}/${BENCHMARK}/${DATASET}/summary.csv
+echo ${REPORT_DIR}/${BENCHMARK}/${DATASET}/summary.csv

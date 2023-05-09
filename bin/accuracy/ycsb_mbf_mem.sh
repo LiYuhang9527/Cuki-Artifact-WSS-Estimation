@@ -36,3 +36,6 @@ for memory in `seq 320 64 768`; do
   NUM_BLOOMS=`expr $memory / 64`
   bench_one_mbf
 done
+
+bash ./bin/parse-log.sh `ls -tr ${REPORT_DIR}/${BENCHMARK}/${DATASET}/*.log` >  ${REPORT_DIR}/${BENCHMARK}/${DATASET}/summary.csv
+echo ${REPORT_DIR}/${BENCHMARK}/${DATASET}/summary.csv

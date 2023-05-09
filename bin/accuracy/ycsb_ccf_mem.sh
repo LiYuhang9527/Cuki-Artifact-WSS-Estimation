@@ -38,3 +38,8 @@ for BITS in `seq 1 1 8`; do
   bench_one_ccf
 done
 
+bash bin/parse-log.sh \
+  `ls -tr ${REPORT_DIR}/${BENCHMARK}/${DATASET}/*_${OPPO_AGING}.log` \
+  >  ${REPORT_DIR}/${BENCHMARK}/${DATASET}/summary_${OPPO_AGING}.csv
+
+echo ${REPORT_DIR}/${BENCHMARK}/${DATASET}/summary_${OPPO_AGING}.csv

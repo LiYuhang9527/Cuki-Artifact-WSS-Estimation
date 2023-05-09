@@ -80,7 +80,7 @@ bench_one_mbf() {
     --num_scope ${NUM_SCOPE} \
     --scope_bits ${SCOPE_BITS} \
     --time_divisor ${TIME_DIVISOR} \
-    >> ${LOG_FILE}
+    > ${LOG_FILE}
 }
 
 # TODO: consider to rename bmc to clocksketch
@@ -108,7 +108,7 @@ bench_one_bmc() {
     --report_interval ${REPORT_INTERVAL} \
 		--size_bits ${SIZE_BITS} \
 		--time_divisor ${TIME_DIVISOR} \
-    >> ${LOG_FILE}
+    > ${LOG_FILE}
 }
 
 bench_one_swamp() {
