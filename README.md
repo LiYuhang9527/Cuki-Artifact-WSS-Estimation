@@ -10,7 +10,7 @@ The whole artifact is departed into three parts:
 - cache system: https://github.com/shadowcache/Cuki-Artifact-Alluxio
 
 ## Experimental Environment
-Meces is implemented on Alluxio, which is compiled using Maven and run with Java. It also relies on Presto and Hive to function properly.
+Cuki is implemented on Alluxio, which is compiled using Maven and run with Java. It also relies on Presto and Hive to function properly.
 
 To save you the trouble of setting up all these components, we provide two ways to get a pre-prepared environment. You can SSH into our pre-prepared machine in the AWS Cloud or deploy the environment yourself.
 
@@ -74,7 +74,7 @@ mvn assembly:assembly \
   -Dfindbugs.skip=true
 ```
 
-##  Steps for Evaluating Meces
+##  Steps for Evaluating Cuki
 We have automated most of the integration and launching operations of our artifact. You can refer to the script files in wss-estimation and presto_cuki.
 
 ### Evaluate the accuracy of wss-estimation
