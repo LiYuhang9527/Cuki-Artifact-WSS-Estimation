@@ -29,6 +29,7 @@ bench_one_ccf() {
   LOG_FILE="${prefix}.log"
   echo "${REPORT_FILE}"
   echo "${LOG_FILE}"
+  : ${LOCK_NUMBER:=4096}
   ${JAVA} -cp ${JAR} ${CLASS_NAME} \
     --benchmark ${BENCHMARK} \
     --shadow_cache ${SHADOW_CACHE} \
@@ -52,6 +53,7 @@ bench_one_ccf() {
     --tags_per_bucket ${TAGS_PER_BUCKET} \
     --bitset_type "default" \
     --time_divisor ${TIME_DIVISOR} \
+    --lock_number ${LOCK_NUMBER} \
     > ${LOG_FILE}
 }
 
