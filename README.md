@@ -1,8 +1,8 @@
 # Adaptive Online Cache Capacity Optimization via Lightweight Working Set Size Estimation at Scale
 
-This is the repository for the artifact evaluation of Cuki. Cuki is described in the ATC'23 paper "Adaptive Online Cache Capacity Optimization via Lightweight Working Set Size Estimation at Scale".
+This is the repository for the artifact evaluation of the ATC'23 paper "Adaptive Online Cache Capacity Optimization via Lightweight Working Set Size Estimation at Scale".
 
-Cuki proposes an approximate data structure for efficiently estimating online WSS and IRR for variable-size item access with proven accuracy guarantee. Our solution is cache-friendly, thread-safe, and light-weighted in design. Based on that, we design an adaptive online cache capacity tuning mechanism.
+The paper proposes an approximate data structure called Cuki. Cuki is designed for efficiently estimating online WSS and IRR for variable-size item access with proven accuracy guarantee. Our solution is cache-friendly, thread-safe, and light-weighted in design. Based on that, we design an adaptive online cache capacity tuning mechanism.
 
 The whole artifact is departed into three parts:
 - WSS estimation: https://github.com/shadowcache/Cuki-Artifact-WSS-Estimation
@@ -185,4 +185,3 @@ bash ./benchmark_scripts/bench_cuki_mrc.sh
 ```cmd
 python3 ./plot/plot_mrc_accuracy.py
 ```
-
