@@ -48,6 +48,17 @@ Dependencies are:
 - mysql 8.0.3
 - S3
 
+The recommended Linux kernel version is  `3.10.0-229.el7.x86_64`.
+
+In our experiments, each machine has  `32 GB` memory and  `Intel Xeon(R) Gold 6248` CPU with ten `2.5GHz` cores. The Linux system is Centos 7.
+
+After you clone the Git repo, the repo name should be renamed as follows:
+
+- The `"Cuki-Artifact-WSS-Estimation"` should be renamed to `“wss-estimation”`.
+
+- The `"Cuki-Artifact-Presto"` should be renamed to `"presto_cuki"`.
+
+- The `"Cuki-Artifact-ALLUXIO"` should be renamed to `"alluxio"`.
 
 First, you need to deploy hive with its metastore in hdfs and mysql. The TPC-DS data should be located in S3. We also prepare the TPC-DS data in our S3. If you want to access our S3, please contact us. Then compile the Alluxio provided by us:
 ```cmd
@@ -75,6 +86,14 @@ export PRESTO="/presto_cuki/presto-cli/target/presto-cli-0.266-SNAPSHOT-executab
 ${PRESTO} -f ./benchmarks/create_from_tpcds_sf10.sql
 hive -f ./benchmarks/create_hive_s3_table.sql
 ```
+
+If you choose to generate your own TPC-DS data.  First, config the [presto TPC-DS connector](https://prestodb.io/docs/current/connector/tpcds.html). Then, restart the presto server. The data generation SQL is:
+
+>  create table IF NOT EXISTS hive.tpcds10.call_center as SELECT * FROM tpcds.sf10.call_center
+
+You can remove the `“limit 0”` in the script `“create_from_tpcds_sf10.sql”`, so that you can automatically generate the data (it will run for a long time)：
+
+> ${PRESTO} -f ./benchmarks/create_from_tpcds_sf10.sql
 
 
 The wss-estimation of the paper can be compiled by:
