@@ -73,7 +73,7 @@ mvn -N io.takari:maven:wrapper
 mvnw clean install -T2C -DskipTests -Dlicense.skip=true -Dcheckstyle.skip=true -Dfindbugs.skip=true -pl '!presto-docs'
 ``` 
 
-If you decide to use TPC-DS data in our S3, rename the `preto_cuki/etc-example` to the `preto_cuki/etc`, then config the key provided by us to the `presto_cuki/etc/hive.properties`.
+If you decide to use TPC-DS data in our S3, rename the `preto_cuki/etc-example` to the `preto_cuki/etc`, then config the key provided by us to the `presto_cuki/etc/catalog/hive.properties`.
 ```
 hive.s3.aws-access-key=xxx
 hive.s3.aws-secret-key=xxx
@@ -82,9 +82,9 @@ hive.s3.aws-secret-key=xxx
 Then, load the data by the command:
 ```cmd
 bash ./benchmarks/restart.sh
-export PRESTO="/presto_cuki/presto-cli/target/presto-cli-0.266-SNAPSHOT-executable.jar"
-${PRESTO} -f ./benchmarks/create_from_tpcds_sf10.sql
-hive -f ./benchmarks/create_hive_s3_table.sql
+export PRESTO="~/presto_cuki/presto-cli/target/presto-cli-0.266-SNAPSHOT-executable.jar"
+${PRESTO} -f ./benchmarks/sql_scripts/create_from_tpcds_sf10.sql
+hive -f ./benchmarks/sql_scripts/create_hive_s3_table.sql
 ```
 
 If you choose to generate your own TPC-DS data.  First, config the [presto TPC-DS connector](https://prestodb.io/docs/current/connector/tpcds.html). Then, restart the presto server. The data generation SQL is:
