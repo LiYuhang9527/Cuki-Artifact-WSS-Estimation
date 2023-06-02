@@ -197,8 +197,8 @@ mvn assembly:assembly \
 ```
 3. run the scripts:
 ```cmd
-bash ./benchmark_scripts/bench_rarcm_mrc.sh
-bash ./benchmark_scripts/bench_cuki_mrc.sh
+bash ./bin/bench_rarcm_mrc.sh
+bash ./bin/bench_cuki_mrc.sh
 ```
 4. wait for the exp to be done, and run python files to get your figure:
 ```cmd
